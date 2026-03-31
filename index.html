@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a1d2e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="정시알람" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./style.css" />
+  <title>정시 알람</title>
+</head>
+<body>
+
+  <!-- Toast — 알람 발화 시 상단에서 내려옴 -->
+  <div class="toast" id="toast"><span id="toast-msg"></span></div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       VIEW: MAIN
+  ══════════════════════════════════════════════════════════ -->
+  <div class="view" id="view-main">
+
+    <header>
+      <span class="app-name">정시 알람</span>
+      <div class="header-right">
+        <div class="status-pill" id="status-pill">
+          <div class="status-dot" id="status-dot"></div>
+          <span id="status-label">꺼짐</span>
+        </div>
+        <button class="icon-btn" id="settings-btn" aria-label="설정">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Clock Card -->
+    <div class="card clock-card">
+      <span class="bell-icon" id="bell-icon">🔔</span>
+      <div class="clock-ampm" id="clock-ampm">오전</div>
+      <div class="clock-digits">
+        <span class="clock-h" id="clock-h">--</span>
+        <span class="clock-sep">:</span>
+        <span class="clock-m" id="clock-m">--</span>
+      </div>
+      <div class="clock-date" id="clock-date"></div>
+    </div>
+
+    <!-- Alarm Settings Card -->
+    <div class="card settings-card">
+      <p class="section-title">알람 범위</p>
+      <div class="range-row">
+        <div class="range-field">
+          <span class="range-field-label">시작</span>
+          <select class="hour-select" id="start-hour" aria-label="시작 시간"></select>
+        </div>
+        <div class="range-sep"></div>
+        <div class="range-field">
+          <span class="range-field-label">종료</span>
+          <select class="hour-select" id="end-hour" aria-label="종료 시간"></select>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <button class="toggle-btn off" id="toggle-btn" aria-label="알람 토글">
+        <span class="toggle-icon" id="toggle-icon">🔕</span>
+        <span id="toggle-label">알람 켜기</span>
+      </button>
+    </div>
+
+    <!-- Next Alarm -->
+    <div class="next-card" id="next-card">
+      <div class="next-icon">⏰</div>
+      <div>
+        <div class="next-label">다음 알람</div>
+        <div id="next-text">—</div>
+      </div>
+    </div>
+
+    <!-- Notification Permission -->
+    <div class="perm-banner hidden" id="perm-banner">
+      <span style="font-size:1.4rem;flex-shrink:0">🔔</span>
+      <p>백그라운드 알람을 위해<br>알림 권한이 필요해요</p>
+      <button class="perm-btn" id="perm-btn">허용하기</button>
+    </div>
+
+    <!-- PWA Install tip -->
+    <div class="install-tip" id="install-tip">
+      📲 브라우저 메뉴 → <strong>홈 화면에 추가</strong>하면<br>앱처럼 더 잘 작동해요
+    </div>
+
+  </div><!-- /view-main -->
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       VIEW: SETTINGS
+  ══════════════════════════════════════════════════════════ -->
+  <div class="view view-settings" id="view-settings">
+
+    <header class="settings-header">
+      <button class="icon-btn back-btn" id="back-btn" aria-label="뒤로">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </button>
+      <span class="app-name">TTS 설정</span>
+      <div style="width:40px"></div><!-- spacer -->
+    </header>
+
+    <!-- Voice Selection -->
+    <div class="card settings-card">
+      <p class="section-title">목소리</p>
+      <select class="voice-select" id="voice-select">
+        <option value="">자동 (한국어 기본)</option>
+      </select>
+    </div>
+
+    <!-- TTS Sliders -->
+    <div class="card settings-card">
+      <p class="section-title">음성 조절</p>
+
+      <div class="slider-row">
+        <div class="slider-label-row">
+          <span class="slider-label">음높이</span>
+          <span class="slider-value" id="pitch-value">1.5</span>
+        </div>
+        <div class="slider-track-wrap">
+          <input type="range" class="slider" id="pitch-slider"
+            min="0.5" max="2.0" step="0.1" value="1.5" />
+          <div class="slider-hint-row">
+            <span>낮게</span><span>높게</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="slider-row">
+        <div class="slider-label-row">
+          <span class="slider-label">말하기 속도</span>
+          <span class="slider-value" id="rate-value">0.8</span>
+        </div>
+        <div class="slider-track-wrap">
+          <input type="range" class="slider" id="rate-slider"
+            min="0.5" max="1.5" step="0.05" value="0.80" />
+          <div class="slider-hint-row">
+            <span>느리게</span><span>빠르게</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="slider-row" style="margin-bottom:0">
+        <div class="slider-label-row">
+          <span class="slider-label">음량</span>
+          <span class="slider-value" id="volume-value">1.0</span>
+        </div>
+        <div class="slider-track-wrap">
+          <input type="range" class="slider" id="volume-slider"
+            min="0" max="1" step="0.1" value="1.0" />
+          <div class="slider-hint-row">
+            <span>작게</span><span>크게</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Test Button -->
+    <button class="test-btn" id="test-btn">
+      <span id="test-icon">🔊</span>
+      <span id="test-label">목소리 테스트</span>
+    </button>
+
+    <!-- Reset -->
+    <button class="reset-btn" id="reset-btn">기본값으로 초기화</button>
+
+  </div><!-- /view-settings -->
+
+  <script src="./app.js"></script>
+</body>
+</html>

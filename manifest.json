@@ -1,0 +1,18 @@
+{
+  "name": "정시 알람",
+  "short_name": "정시알람",
+  "description": "매 정시마다 한국어로 시각을 알려주는 알람",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1a1d2e",
+  "theme_color": "#1a1d2e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
