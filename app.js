@@ -31,7 +31,7 @@ const $ = id => document.getElementById(id);
 // main
 const $clockH      = $('clock-h');
 const $clockM      = $('clock-m');
-const $clockAmpm   = $('clock-ampm');
+const $clockAmpm   = $('clock-ampm'); // null이면 무시
 const $clockDate   = $('clock-date');
 const $startSel    = $('start-hour');
 const $endSel      = $('end-hour');
@@ -283,7 +283,7 @@ function renderClock(now) {
   const disp = h === 0 ? 12 : h > 12 ? h - 12 : h;
   $clockH.textContent    = String(disp).padStart(2, '0');
   $clockM.textContent    = String(m).padStart(2, '0');
-  $clockAmpm.textContent = h < 12 ? '오전' : '오후';
+  if ($clockAmpm) $clockAmpm.textContent = h < 12 ? '오전' : '오후';
   const days = ['일','월','화','수','목','금','토'];
   $clockDate.textContent =
     `${now.getFullYear()}. ${now.getMonth()+1}. ${now.getDate()}. (${days[now.getDay()]})`;
