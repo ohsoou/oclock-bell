@@ -17,6 +17,9 @@
   <!-- Toast — 알람 발화 시 상단에서 내려옴 -->
   <div class="toast" id="toast"><span id="toast-msg"></span></div>
 
+  <!-- NTP 동기화 상태 -->
+  <div class="ntp-status" id="ntp-status"></div>
+
   <!-- ══════════════════════════════════════════════════════════
        VIEW: MAIN
   ══════════════════════════════════════════════════════════ -->
@@ -41,7 +44,6 @@
     <!-- Clock Card -->
     <div class="card clock-card">
       <span class="bell-icon" id="bell-icon">🔔</span>
-      <div class="clock-ampm" id="clock-ampm">오전</div>
       <div class="clock-digits">
         <span class="clock-h" id="clock-h">--</span>
         <span class="clock-sep">:</span>
@@ -106,9 +108,24 @@
           <polyline points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <span class="app-name">TTS 설정</span>
+      <span class="app-name">설정</span>
       <div style="width:40px"></div><!-- spacer -->
     </header>
+
+    <!-- Notification Settings -->
+    <div class="card settings-card">
+      <p class="section-title">알림</p>
+      <div class="row-item">
+        <div class="row-item-text">
+          <span class="row-item-label">상태 알림 표시</span>
+          <span class="row-item-desc">알람 켜짐/꺼짐 상태를 알림창에 항상 표시</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="status-notif-toggle" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
+      </div>
+    </div>
 
     <!-- Voice Selection -->
     <div class="card settings-card">

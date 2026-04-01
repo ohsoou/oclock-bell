@@ -1,4 +1,4 @@
-const CACHE = 'oclock-v10';
+const CACHE = 'oclock-v12';
 const ASSETS = ['./', './index.html', './style.css', './app.js',
                 './timer.worker.js', './manifest.json', './icon.svg'];
 
@@ -50,6 +50,24 @@ self.addEventListener('message', e => {
   if (e.data.type === 'CANCEL') {
     timers.forEach(id => clearTimeout(id));
     timers.length = 0;
+  }
+
+  if (e.data.type === 'STATUS_NOTIF') {
+    if (!e.data.show) {
+      // 상태 알림 닫기
+      self.registration.getNotifications({ tag: 'alarm-status' })
+        .then(ns => ns.forEach(n => n.close()));
+      return;
+    }
+    self.registration.showNotification(e.data.title, {
+      body:              e.data.body,
+      tag:               'alarm-status',   // 같은 tag → 기존 알림 교체
+      renotify:          false,            // 교체 시 소리/진동 없음
+      silent:            true,
+      requireInteraction: false,
+      icon:              './icon.svg',
+      badge:             './icon.svg',
+    });
   }
 });
 

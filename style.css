@@ -340,6 +340,27 @@ header {
 .next-label { font-size: 0.7rem; font-weight: 700; color: var(--text-3); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 2px; }
 #next-text { font-size: 0.95rem; font-weight: 700; color: var(--text); }
 
+/* ── NTP status badge ────────────────────────────────────────── */
+.ntp-status {
+  position: fixed;
+  bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(30,30,40,0.85);
+  color: rgba(255,255,255,0.9);
+  font-size: 0.72rem; font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s, transform 0.3s;
+  z-index: 200;
+}
+.ntp-status.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* ── Toast ───────────────────────────────────────────────────── */
 .toast {
   position: fixed; top: 0; left: 50%;
@@ -379,6 +400,56 @@ header {
 /* ══════════════════════════════════════════════════════════════
    SETTINGS PAGE
 ══════════════════════════════════════════════════════════════ */
+
+/* ── Row item (setting row with toggle) ─────────────────────── */
+.row-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.row-item-text { flex: 1; min-width: 0; }
+.row-item-label {
+  display: block;
+  font-size: 0.95rem; font-weight: 600; color: var(--text);
+  margin-bottom: 2px;
+}
+.row-item-desc {
+  display: block;
+  font-size: 0.78rem; color: var(--text-3); line-height: 1.4;
+}
+
+/* ── Toggle switch (iOS style) ───────────────────────────────── */
+.toggle-switch {
+  flex-shrink: 0;
+  position: relative;
+  width: 50px; height: 28px;
+  cursor: pointer;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+
+.toggle-track {
+  display: block;
+  width: 50px; height: 28px;
+  background: var(--border);
+  border-radius: 999px;
+  transition: background 0.25s;
+  position: relative;
+}
+.toggle-switch input:checked + .toggle-track { background: var(--purple); }
+
+.toggle-thumb {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 22px; height: 22px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.toggle-switch input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(22px);
+}
 
 /* ── Sliders ─────────────────────────────────────────────────── */
 .slider-row { margin-bottom: 24px; }

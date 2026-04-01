@@ -14,6 +14,7 @@ const HOUR_KO = [
 const DEFAULTS = {
   startHour: 8, endHour: 22, alarmOn: false,
   pitch: 1.5, rate: 0.80, volume: 1.0, voiceURI: '',
+  statusNotif: false,
 };
 
 function loadSettings() {
@@ -60,15 +61,14 @@ const $volumeValue  = $('volume-value');
 const $testBtn      = $('test-btn');
 const $testIcon     = $('test-icon');
 const $testLabel    = $('test-label');
-const $resetBtn     = $('reset-btn');
+const $resetBtn        = $('reset-btn');
+const $statusNotifTgl  = $('status-notif-toggle');
 
 // ── Runtime state ────────────────────────────────────────────────
-let alarmOn      = false;
-let lastRungHour = -1;
-let lastRungMin  = -1;
-let wakeLock     = null;
-let audioCtx     = null;
-let worker       = null;
+let alarmOn  = false;
+let wakeLock = null;
+let audioCtx = null;
+let worker   = null;
 
 // ── Init ─────────────────────────────────────────────────────────
 async function init() {
@@ -90,11 +90,13 @@ async function init() {
   $rateSlider.addEventListener('input',   onSliderChange);
   $volumeSlider.addEventListener('input', onSliderChange);
   $voiceSel.addEventListener('change',    onVoiceChange);
-  $testBtn.addEventListener('click',      onTestVoice);
-  $resetBtn.addEventListener('click',     onResetTTS);
+  $testBtn.addEventListener('click',         onTestVoice);
+  $resetBtn.addEventListener('click',        onResetTTS);
+  $statusNotifTgl.addEventListener('change', onStatusNotifToggle);
 
   // populate settings page from saved values
   applyTTSToUI(s);
+  $statusNotifTgl.checked = s.statusNotif;
 
   await registerSW();
   checkPermissionBanner();
@@ -108,6 +110,11 @@ async function init() {
     acquireWakeLock();
     startSilentAudio();
     swSchedule();
+    // Worker에 알람 복원 — startWorkerTimer 이후 호출되므로 약간 지연
+    setTimeout(() => {
+      worker?.postMessage({ type: 'SET_ALARM', enabled: true,
+        startHour: s.startHour, endHour: s.endHour });
+    }, 200);
   }
 }
 
@@ -129,36 +136,66 @@ function buildHourOptions(sel, selected) {
 }
 
 // ── Web Worker timer ──────────────────────────────────────────────
+let ntpSynced = false;
+
 function startWorkerTimer() {
   if (typeof Worker !== 'undefined') {
     worker = new Worker('./timer.worker.js');
-    worker.onmessage = e => { if (e.data.type === 'TICK') onTick(e.data.ts); };
+    worker.onmessage = onWorkerMessage;
     worker.postMessage({ type: 'START' });
+
+    // 1시간마다 NTP 재동기화
+    setInterval(() => worker.postMessage({ type: 'RESYNC' }), 60 * 60 * 1000);
   } else {
-    setInterval(() => onTick(Date.now()), 1000);
+    // Worker 미지원 폴백: performance.now() 기반 드리프트 보정 틱
+    (function fallbackTick() {
+      const ms = 1000 - (Date.now() % 1000);
+      setTimeout(() => { onTick(Date.now()); fallbackTick(); }, ms);
+    })();
   }
 }
 
-// ── Tick ─────────────────────────────────────────────────────────
-function onTick(ts) {
-  const now = new Date(ts);
-  const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+function onWorkerMessage(e) {
+  const { type } = e.data;
 
-  renderClock(now);
-
-  if (alarmOn && m === 0 && s < 2 && !(h === lastRungHour && m === lastRungMin)) {
-    const { startHour, endHour } = loadSettings();
-    if (inRange(h, startHour, endHour)) {
-      lastRungHour = h; lastRungMin = m;
-      fireAlarm(h);
-    }
+  if (type === 'TICK') {
+    onTick(e.data.ts);
   }
-  if (m >= 2) { lastRungHour = -1; lastRungMin = -1; }
+
+  if (type === 'ALARM') {
+    // Worker가 정시를 직접 감지해서 알림 — 폴링 없이 정밀 발화
+    if (alarmOn) fireAlarm(e.data.hour);
+  }
+
+  if (type === 'NTP_SYNCED') {
+    ntpSynced = true;
+    showNtpStatus(`NTP 동기화 완료 (±${Math.round(e.data.rtt / 2)}ms)`);
+  }
+
+  if (type === 'NTP_FAILED') {
+    showNtpStatus('NTP 실패 — 시스템 시계 사용 중');
+  }
+}
+
+// ── Tick (UI 전용 — 시계 표시만) ────────────────────────────────
+function onTick(ts) {
+  renderClock(new Date(ts));
   if (alarmOn) renderNextAlarm();
 }
 
 function inRange(h, start, end) {
   return start <= end ? (h >= start && h < end) : (h >= start || h < end);
+}
+
+// ── NTP 상태 표시 ─────────────────────────────────────────────────
+let ntpStatusTimer = null;
+function showNtpStatus(msg) {
+  const el = document.getElementById('ntp-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(ntpStatusTimer);
+  ntpStatusTimer = setTimeout(() => el.classList.remove('show'), 4000);
 }
 
 // ── Clock render ──────────────────────────────────────────────────
@@ -180,6 +217,8 @@ function fireAlarm(h) {
   speak(HOUR_KO[h]);
   showToast(HOUR_KO[h]);
   animateBell();
+  // 정시 후 "다음 알람" 갱신
+  setTimeout(updateStatusNotification, 2000);
 }
 
 // ── TTS speak ────────────────────────────────────────────────────
@@ -331,18 +370,23 @@ function onToggle() {
   saveSettings({ alarmOn });
   applyToggleUI(alarmOn);
 
+  const { startHour, endHour } = loadSettings();
+
   if (alarmOn) {
-    lastRungHour = -1; lastRungMin = -1;
     acquireWakeLock();
     startSilentAudio();
     swSchedule();
     renderNextAlarm();
+    // Worker에 알람 활성화 및 범위 전달
+    worker?.postMessage({ type: 'SET_ALARM', enabled: true, startHour, endHour });
   } else {
     releaseWakeLock();
     stopSilentAudio();
     swCancel();
     $nextCard.classList.remove('show');
+    worker?.postMessage({ type: 'SET_ALARM', enabled: false });
   }
+  updateStatusNotification();
 }
 
 function applyToggleUI(on) {
@@ -358,8 +402,14 @@ function applyToggleUI(on) {
 }
 
 function onRangeChange() {
-  saveSettings({ startHour: +$startSel.value, endHour: +$endSel.value });
-  if (alarmOn) { swSchedule(); renderNextAlarm(); }
+  const startHour = +$startSel.value, endHour = +$endSel.value;
+  saveSettings({ startHour, endHour });
+  if (alarmOn) {
+    swSchedule();
+    renderNextAlarm();
+    worker?.postMessage({ type: 'UPDATE_RANGE', startHour, endHour });
+  }
+  updateStatusNotification();
 }
 
 // ── Next alarm ────────────────────────────────────────────────────
@@ -426,6 +476,75 @@ function swSchedule() {
 }
 function swCancel() {
   navigator.serviceWorker?.controller?.postMessage({ type: 'CANCEL' });
+}
+
+// ── 상태 알림 (영구 알림창 표시) ─────────────────────────────────
+function onStatusNotifToggle() {
+  const enabled = $statusNotifTgl.checked;
+  saveSettings({ statusNotif: enabled });
+
+  if (enabled) {
+    // 알림 권한 확인 후 표시
+    Notification.requestPermission().then(r => {
+      if (r === 'granted') {
+        $permBanner.classList.add('hidden');
+        updateStatusNotification();
+      } else {
+        // 권한 거부 시 토글 되돌리기
+        $statusNotifTgl.checked = false;
+        saveSettings({ statusNotif: false });
+        $permBanner.classList.remove('hidden');
+      }
+    });
+  } else {
+    dismissStatusNotification();
+  }
+}
+
+function updateStatusNotification() {
+  const s = loadSettings();
+  if (!s.statusNotif) return;
+  if (!navigator.serviceWorker?.controller) return;
+  if (Notification.permission !== 'granted') return;
+
+  const { startHour, endHour } = s;
+  const startLabel = hourLabel(startHour);
+  const endLabel   = hourLabel(endHour);
+
+  // 다음 알람 계산
+  let nextText = '';
+  if (alarmOn) {
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+    for (let d = 1; d <= 24; d++) {
+      const nh = (h + d) % 24;
+      if (!inRange(nh, startHour, endHour)) continue;
+      const rem = d * 60 - m;
+      const rh = Math.floor(rem / 60), rm = rem % 60;
+      const t = rh > 0 ? `${rh}시간 ${rm > 0 ? rm + '분 ' : ''}후` : `${rm}분 후`;
+      nextText = ` · 다음: ${HOUR_KO[nh]} (${t})`;
+      break;
+    }
+  }
+
+  navigator.serviceWorker.controller.postMessage({
+    type: 'STATUS_NOTIF',
+    show: true,
+    title: alarmOn ? '🔔 정시 알람 켜짐' : '🔕 정시 알람 꺼짐',
+    body:  alarmOn
+      ? `${startLabel} ~ ${endLabel}${nextText}`
+      : '알람이 꺼져 있어요',
+  });
+}
+
+function dismissStatusNotification() {
+  navigator.serviceWorker?.controller?.postMessage({ type: 'STATUS_NOTIF', show: false });
+}
+
+function hourLabel(h) {
+  const ampm = h < 12 ? '오전' : '오후';
+  const disp = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${ampm} ${disp}시`;
 }
 
 async function registerSW() {
