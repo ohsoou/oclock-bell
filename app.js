@@ -105,6 +105,9 @@ async function init() {
   initGeolocation();
   startWorkerTimer();
 
+  // 홈 가이드 — 첫 방문 시 표시
+  setTimeout(() => startGuide('home'), 600);
+
   if (s.alarmOn) {
     alarmOn = true;
     applyToggleUI(true);
@@ -122,6 +125,10 @@ async function init() {
 // ── Page navigation ───────────────────────────────────────────────
 function showPage(page) {
   document.body.classList.toggle('show-settings', page === 'settings');
+  // 설정 페이지 가이드 — 전환 애니메이션 끝난 뒤 표시
+  if (page === 'settings') {
+    setTimeout(() => startGuide('settings'), 420);
+  }
 }
 
 // ── Hour selects ──────────────────────────────────────────────────
@@ -651,5 +658,193 @@ function checkInstallTip() {
   if (window.matchMedia('(display-mode: standalone)').matches)
     $installTip.classList.add('hidden');
 }
+
+// ══════════════════════════════════════════════════════════════
+// GUIDE SYSTEM
+// ══════════════════════════════════════════════════════════════
+
+const GUIDE_STEPS = {
+  home: [
+    {
+      target:  '.clock-card',
+      tag:     '시계',
+      title:   '낮/밤 테마 자동 전환',
+      desc:    '위치 정보를 기반으로 실제 일출·일몰 시간에 맞춰 밝은 낮 테마와 어두운 밤 테마로 자동 전환돼요.',
+    },
+    {
+      target:  '.range-row',
+      tag:     '알람 범위',
+      title:   '알람 시간 범위 설정',
+      desc:    '시작 시간과 종료 시간을 설정하면, 그 범위 안의 정시에만 알람이 울려요.',
+    },
+    {
+      target:  '#toggle-btn',
+      tag:     '알람',
+      title:   '알람 켜기 / 끄기',
+      desc:    '버튼을 탭하면 알람이 켜져요. 켜진 상태에서 매 정시마다 한국어로 시각을 알려줘요.',
+    },
+    {
+      target:  '#settings-btn',
+      tag:     '설정',
+      title:   'TTS & 알림 설정',
+      desc:    '목소리·음높이·속도·음량을 조절하고, 알림창에 알람 상태를 표시할 수 있어요.',
+    },
+  ],
+  settings: [
+    {
+      target:  '.card:has(#status-notif-toggle)',
+      tag:     '알림',
+      title:   '상태 알림 표시',
+      desc:    '켜두면 알림창에 알람 켜짐/꺼짐 상태와 다음 알람 시각이 항상 표시돼요.',
+    },
+    {
+      target:  '#voice-select',
+      tag:     '목소리',
+      title:   '목소리 선택',
+      desc:    '디바이스에 설치된 한국어 음성 중 원하는 목소리를 고를 수 있어요.',
+    },
+    {
+      target:  '.card:has(#pitch-slider)',
+      tag:     '음성 조절',
+      title:   '음높이 · 속도 · 음량',
+      desc:    '슬라이더로 음높이(Pitch), 말하기 속도(Rate), 음량(Volume)을 자유롭게 조절하세요.',
+    },
+    {
+      target:  '#test-btn',
+      tag:     '테스트',
+      title:   '목소리 테스트',
+      desc:    '버튼을 탭하면 현재 설정으로 즉시 발화해요. 알람을 켜기 전에 미리 확인해보세요.',
+    },
+  ],
+};
+
+const $guideOverlay  = document.getElementById('guide-overlay');
+const $guideSpot     = document.getElementById('guide-spotlight');
+const $guideTip      = document.getElementById('guide-tooltip');
+const $guideStepBadge= document.getElementById('guide-step-badge');
+const $guideTag      = document.getElementById('guide-tag');
+const $guideTitle    = document.getElementById('guide-title');
+const $guideDesc     = document.getElementById('guide-desc');
+const $guidePrev     = document.getElementById('guide-prev');
+const $guideNext     = document.getElementById('guide-next');
+const $guideNever    = document.getElementById('guide-never');
+
+let guideContext = null;  // 'home' | 'settings'
+let guideStep    = 0;
+
+function shouldShowGuide(ctx) {
+  return !localStorage.getItem(`ocb_guide_${ctx}`);
+}
+
+function startGuide(ctx) {
+  if (!shouldShowGuide(ctx)) return;
+  guideContext = ctx;
+  guideStep    = 0;
+  $guideNever.checked = false;
+  $guideOverlay.classList.add('active');
+  renderGuideStep();
+}
+
+function renderGuideStep() {
+  const steps = GUIDE_STEPS[guideContext];
+  const step  = steps[guideStep];
+  const total = steps.length;
+
+  // content
+  $guideStepBadge.textContent = `${guideStep + 1} / ${total}`;
+  $guideTag.textContent       = step.tag;
+  $guideTitle.textContent     = step.title;
+  $guideDesc.textContent      = step.desc;
+  $guidePrev.disabled         = guideStep === 0;
+  $guideNext.textContent      = guideStep === total - 1 ? '시작하기 🎉' : '다음';
+
+  // find target element (may be in the currently visible view)
+  const targetEl = document.querySelector(step.target);
+  if (!targetEl) { advanceGuide(1); return; }  // skip if not in DOM
+
+  positionGuide(targetEl);
+}
+
+function positionGuide(el) {
+  const GAP    = 8;
+  const MARGIN = 16;
+  const r      = el.getBoundingClientRect();
+  const vw     = window.innerWidth;
+  const vh     = window.innerHeight;
+
+  // ── 스포트라이트 ───────────────────────────────────────────────
+  $guideSpot.style.top    = `${r.top    - GAP}px`;
+  $guideSpot.style.left   = `${r.left   - GAP}px`;
+  $guideSpot.style.width  = `${r.width  + GAP * 2}px`;
+  $guideSpot.style.height = `${r.height + GAP * 2}px`;
+
+  // ── 툴팁 가로 위치: 항상 화면 중앙 정렬 ─────────────────────────
+  const tipW = Math.min(300, vw - MARGIN * 2);
+  const left = (vw - tipW) / 2;
+  $guideTip.style.width = `${tipW}px`;
+  $guideTip.style.left  = `${left}px`;
+
+  // ── 툴팁 세로 위치: 아래 공간 우선 → 위 → 화면 중앙 ────────────
+  const BELOW_GAP = r.bottom + GAP + 12;
+  const tipH = 220; // 예상 높이 (충분한 여유)
+
+  $guideTip.classList.remove('arrow-top', 'arrow-bottom', 'arrow-none');
+
+  let top;
+  if (BELOW_GAP + tipH < vh - MARGIN) {
+    top = BELOW_GAP;
+    $guideTip.classList.add('arrow-top');
+  } else if (r.top - GAP - 12 - tipH > MARGIN) {
+    top = r.top - GAP - 12 - tipH;
+    $guideTip.classList.add('arrow-bottom');
+  } else {
+    top = Math.max(MARGIN, (vh - tipH) / 2);
+    $guideTip.classList.add('arrow-none');
+  }
+  $guideTip.style.top = `${top}px`;
+
+  // ── 화살표: 타겟 중심 X에 맞춰 동적 계산 ───────────────────────
+  // 타겟 중심 X → 툴팁 기준 상대 위치로 변환
+  const targetCenterX = r.left + r.width / 2;
+  const arrowLeft = Math.max(16, Math.min(targetCenterX - left - 6, tipW - 28));
+  $guideTip.style.setProperty('--arrow-left', `${arrowLeft}px`);
+
+  el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function advanceGuide(dir) {
+  const steps = GUIDE_STEPS[guideContext];
+  guideStep += dir;
+  if (guideStep < 0) guideStep = 0;
+  if (guideStep >= steps.length) {
+    closeGuide();
+    return;
+  }
+  renderGuideStep();
+}
+
+function closeGuide() {
+  if ($guideNever.checked) {
+    localStorage.setItem(`ocb_guide_${guideContext}`, '1');
+  }
+  $guideOverlay.classList.remove('active');
+  guideContext = null;
+}
+
+$guidePrev.addEventListener('click', () => advanceGuide(-1));
+$guideNext.addEventListener('click', () => advanceGuide(1));
+
+// close on backdrop tap (outside spotlight/tooltip)
+$guideOverlay.addEventListener('click', e => {
+  if (e.target === $guideOverlay) closeGuide();
+});
+
+// recalculate position on resize
+window.addEventListener('resize', () => {
+  if (!guideContext) return;
+  const step = GUIDE_STEPS[guideContext][guideStep];
+  const el   = document.querySelector(step.target);
+  if (el) positionGuide(el);
+});
 
 init();

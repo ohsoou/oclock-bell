@@ -528,3 +528,136 @@ header {
   transition: background 0.15s, color 0.15s;
 }
 .reset-btn:active { background: var(--border); color: var(--text-2); }
+
+/* ══════════════════════════════════════════════════════════════
+   GUIDE OVERLAY
+══════════════════════════════════════════════════════════════ */
+.guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.guide-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Spotlight — positioned over target via JS, box-shadow creates dark backdrop */
+.guide-spotlight {
+  position: fixed;
+  border-radius: 16px;
+  box-shadow: 0 0 0 100vmax rgba(10,12,24,0.74);
+  transition: top 0.35s cubic-bezier(0.4,0,0.2,1),
+              left 0.35s cubic-bezier(0.4,0,0.2,1),
+              width 0.35s cubic-bezier(0.4,0,0.2,1),
+              height 0.35s cubic-bezier(0.4,0,0.2,1),
+              border-radius 0.35s;
+  z-index: 2001;
+  pointer-events: none;
+}
+
+/* Tooltip card */
+.guide-tooltip {
+  position: fixed;
+  z-index: 2002;
+  width: min(300px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: var(--r-lg);
+  padding: 20px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+  transition: top 0.35s cubic-bezier(0.4,0,0.2,1),
+              left 0.35s cubic-bezier(0.4,0,0.2,1),
+              transform 0.35s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Arrow pointer */
+.guide-tooltip::before {
+  content: '';
+  position: absolute;
+  width: 12px; height: 12px;
+  background: #fff;
+  border-radius: 2px;
+  transform: rotate(45deg);
+  transition: top 0.35s, bottom 0.35s, left 0.35s;
+}
+.guide-tooltip.arrow-top::before    { top: -6px; left: var(--arrow-left, 24px); }
+.guide-tooltip.arrow-bottom::before { bottom: -6px; left: var(--arrow-left, 24px); }
+.guide-tooltip.arrow-none::before   { display: none; }
+
+.guide-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.guide-step-badge {
+  font-size: 0.7rem; font-weight: 700; color: var(--text-3);
+  background: var(--surface-2); border-radius: 999px;
+  padding: 3px 10px;
+}
+.guide-tag {
+  font-size: 0.7rem; font-weight: 700; color: var(--purple);
+  background: rgba(124,92,252,0.1); border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.guide-title {
+  font-size: 1rem; font-weight: 800; color: var(--text);
+  margin-bottom: 6px; line-height: 1.3;
+}
+.guide-desc {
+  font-size: 0.85rem; color: var(--text-2); line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.guide-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.guide-never-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.guide-never-label input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--purple);
+  cursor: pointer;
+}
+.guide-btn-row {
+  display: flex;
+  gap: 8px;
+}
+.guide-btn-prev {
+  flex: 1;
+  padding: 11px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: 0.88rem; font-family: var(--font); font-weight: 600;
+  color: var(--text-2); cursor: pointer;
+  transition: background 0.15s;
+}
+.guide-btn-prev:active { background: var(--border); }
+.guide-btn-prev:disabled { opacity: 0.35; cursor: default; }
+
+.guide-btn-next {
+  flex: 2;
+  padding: 11px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: linear-gradient(135deg, var(--purple), var(--purple-dark));
+  color: #fff;
+  font-size: 0.88rem; font-family: var(--font); font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px var(--purple-glow);
+  transition: opacity 0.15s;
+}
+.guide-btn-next:active { opacity: 0.85; }

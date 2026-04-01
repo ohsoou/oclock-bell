@@ -14,11 +14,39 @@
 </head>
 <body>
 
-  <!-- Toast — 알람 발화 시 상단에서 내려옴 -->
+  <!-- Toast -->
   <div class="toast" id="toast"><span id="toast-msg"></span></div>
 
-  <!-- NTP 동기화 상태 -->
+  <!-- NTP 상태 -->
   <div class="ntp-status" id="ntp-status"></div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       GUIDE OVERLAY (홈/설정 공용)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="guide-overlay" id="guide-overlay" aria-hidden="true">
+    <!-- 스포트라이트: 타겟 위에 겹쳐서 box-shadow로 어두운 배경 생성 -->
+    <div class="guide-spotlight" id="guide-spotlight"></div>
+
+    <!-- 툴팁 카드 -->
+    <div class="guide-tooltip" id="guide-tooltip">
+      <div class="guide-header">
+        <span class="guide-step-badge" id="guide-step-badge">1 / 4</span>
+        <span class="guide-tag" id="guide-tag"></span>
+      </div>
+      <h3 class="guide-title" id="guide-title"></h3>
+      <p class="guide-desc" id="guide-desc"></p>
+      <div class="guide-footer">
+        <label class="guide-never-label">
+          <input type="checkbox" id="guide-never" />
+          <span>다시 보지 않기</span>
+        </label>
+        <div class="guide-btn-row">
+          <button class="guide-btn-prev" id="guide-prev">이전</button>
+          <button class="guide-btn-next" id="guide-next">다음</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ══════════════════════════════════════════════════════════
        VIEW: MAIN
