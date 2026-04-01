@@ -102,6 +102,7 @@ async function init() {
   checkPermissionBanner();
   checkInstallTip();
   populateVoices();
+  initGeolocation();
   startWorkerTimer();
 
   if (s.alarmOn) {
@@ -198,18 +199,99 @@ function showNtpStatus(msg) {
   ntpStatusTimer = setTimeout(() => el.classList.remove('show'), 4000);
 }
 
+// ── 일출/일몰 계산 (NOAA 간략 알고리즘 — 오프라인, 외부 API 불필요) ──
+// 참고: https://en.wikipedia.org/wiki/Sunrise_equation
+const _d2r = Math.PI / 180;
+const _sinD = d => Math.sin(d * _d2r);
+const _cosD = d => Math.cos(d * _d2r);
+const _asinD = x => Math.asin(x) / _d2r;
+const _acosD = x => Math.acos(x) / _d2r;
+
+function calcSunTimes(lat, lng, date) {
+  // Julian date
+  const JD = date.getTime() / 86400000 + 2440587.5;
+  // Mean solar noon
+  const n      = Math.round(JD - 2451545.0 + 0.0008 - lng / 360);
+  const Jstar  = n - lng / 360;
+  // Solar mean anomaly (degrees)
+  const M      = ((357.5291 + 0.98560028 * Jstar) % 360 + 360) % 360;
+  // Equation of the center
+  const C      = 1.9148 * _sinD(M) + 0.0200 * _sinD(2 * M) + 0.0003 * _sinD(3 * M);
+  // Ecliptic longitude
+  const lambda = ((M + C + 180 + 102.9372) % 360 + 360) % 360;
+  // Solar transit (Julian date)
+  const Jtr    = 2451545.0 + Jstar + 0.0053 * _sinD(M) - 0.0069 * _sinD(2 * lambda);
+  // Declination
+  const sinDec = _sinD(lambda) * _sinD(23.4397);
+  const cosDec = Math.cos(_asinD(sinDec) * _d2r);
+  // Hour angle (−0.833° accounts for atmospheric refraction + solar disc)
+  const cosOmega = (_sinD(-0.833) - _sinD(lat) * sinDec) / (_cosD(lat) * cosDec);
+
+  if (cosOmega < -1) return null; // 극야 — 해 없음 (항상 밤)
+  if (cosOmega >  1) return null; // 백야 — 해 짐 없음 (항상 낮)
+
+  const omega  = _acosD(cosOmega);
+  const toDate = jd => new Date((jd - 2440587.5) * 86400000);
+  return {
+    sunrise: toDate(Jtr - omega / 360),
+    sunset:  toDate(Jtr + omega / 360),
+  };
+}
+
+// ── 위치 기반 주간/야간 판별 ─────────────────────────────────────
+let sunTimes = null;      // { sunrise: Date, sunset: Date }
+let sunTimesDate = '';    // 마지막 계산 날짜 (YYYY-MM-DD)
+let geoCoords = null;     // { lat, lng }
+
+function isDaytime(now) {
+  // 위치를 아직 모르면 오전 6시~오후 8시를 낮으로 간주 (임시)
+  if (!sunTimes) return now.getHours() >= 6 && now.getHours() < 20;
+  return now >= sunTimes.sunrise && now < sunTimes.sunset;
+}
+
+function refreshSunTimes(now) {
+  if (!geoCoords) return;
+  const dateKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+  if (dateKey === sunTimesDate) return; // 오늘 이미 계산함
+  sunTimesDate = dateKey;
+  sunTimes = calcSunTimes(geoCoords.lat, geoCoords.lng, now);
+}
+
+async function initGeolocation() {
+  // localStorage에 캐시된 좌표 먼저 사용
+  try {
+    const cached = JSON.parse(localStorage.getItem('ocb_geo') || 'null');
+    if (cached) { geoCoords = cached; refreshSunTimes(new Date()); }
+  } catch {}
+
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      geoCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      localStorage.setItem('ocb_geo', JSON.stringify(geoCoords));
+      sunTimesDate = ''; // 재계산 강제
+      refreshSunTimes(new Date());
+    },
+    () => { /* 권한 거부 — 임시 로직 유지 */ },
+    { timeout: 8000, maximumAge: 6 * 60 * 60 * 1000 } // 6시간 캐시
+  );
+}
+
 // ── Clock render ──────────────────────────────────────────────────
 function renderClock(now) {
   const h = now.getHours(), m = now.getMinutes();
-  const isAM = h < 12;
   const disp = h === 0 ? 12 : h > 12 ? h - 12 : h;
   $clockH.textContent    = String(disp).padStart(2, '0');
   $clockM.textContent    = String(m).padStart(2, '0');
-  $clockAmpm.textContent = isAM ? '오전' : '오후';
+  $clockAmpm.textContent = h < 12 ? '오전' : '오후';
   const days = ['일','월','화','수','목','금','토'];
   $clockDate.textContent =
     `${now.getFullYear()}. ${now.getMonth()+1}. ${now.getDate()}. (${days[now.getDay()]})`;
-  document.querySelector('.clock-card').classList.toggle('am', isAM);
+
+  // 날짜 바뀌면 일출/일몰 재계산
+  refreshSunTimes(now);
+  // 실제 햇빛 기준 낮/밤 전환
+  document.querySelector('.clock-card').classList.toggle('am', isDaytime(now));
 }
 
 // ── Alarm fire ────────────────────────────────────────────────────
