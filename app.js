@@ -14,7 +14,7 @@ const HOUR_KO = [
 const DEFAULTS = {
   startHour: 8, endHour: 22, alarmOn: false,
   pitch: 1.5, rate: 0.80, volume: 1.0, voiceURI: '',
-  statusNotif: false,
+  statusNotif: false, testMode: false,
 };
 
 function loadSettings() {
@@ -100,6 +100,8 @@ async function init() {
   // populate settings page from saved values
   applyTTSToUI(s);
   $statusNotifTgl.checked = s.statusNotif;
+  testMode = s.testMode;
+  $testModeTgl.checked = s.testMode;
 
   await registerSW();
   checkPermissionBanner();
@@ -610,6 +612,7 @@ function onStatusNotifToggle() {
 
 function onTestModeToggle() {
   testMode = $testModeTgl.checked;
+  saveSettings({ testMode });
   worker?.postMessage({ type: 'TEST_MODE', enabled: testMode });
   if (alarmOn) {
     swSchedule();

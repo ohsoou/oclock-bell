@@ -1,4 +1,4 @@
-const CACHE = 'oclock-v18';
+const CACHE = 'oclock-v19';
 const ASSETS = ['./', './index.html', './style.css', './app.js',
                 './timer.worker.js', './manifest.json', './icon.svg'];
 
