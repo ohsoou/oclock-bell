@@ -836,6 +836,12 @@ const GUIDE_STEPS = {
       desc:    '슬라이더로 음높이(Pitch), 말하기 속도(Rate), 음량(Volume)을 자유롭게 조절하세요.',
     },
     {
+      target:  '.card:has(#test-mode-toggle)',
+      tag:     '테스트',
+      title:   '테스트 모드',
+      desc:    '켜두면 1시간 간격 대신 1분 간격으로 알람이 울려서 백그라운드 알림과 TTS를 빠르게 점검할 수 있어요.',
+    },
+    {
       target:  '#test-btn',
       tag:     '테스트',
       title:   '목소리 테스트',
@@ -888,7 +894,20 @@ function renderGuideStep() {
   const targetEl = document.querySelector(step.target);
   if (!targetEl) { advanceGuide(1); return; }  // skip if not in DOM
 
-  positionGuide(targetEl);
+  ensureGuideTargetVisible(targetEl, () => positionGuide(targetEl));
+}
+
+function ensureGuideTargetVisible(el, onReady) {
+  const rect = el.getBoundingClientRect();
+  const needsScroll = rect.top < 24 || rect.bottom > window.innerHeight - 24;
+
+  if (!needsScroll) {
+    onReady();
+    return;
+  }
+
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  setTimeout(onReady, 260);
 }
 
 function positionGuide(el) {
@@ -934,8 +953,6 @@ function positionGuide(el) {
   const targetCenterX = r.left + r.width / 2;
   const arrowLeft = Math.max(16, Math.min(targetCenterX - left - 6, tipW - 28));
   $guideTip.style.setProperty('--arrow-left', `${arrowLeft}px`);
-
-  el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 function advanceGuide(dir) {
