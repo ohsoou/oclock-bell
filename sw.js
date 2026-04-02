@@ -26,15 +26,30 @@ self.addEventListener('fetch', e => {
 //   ② setTimeout 폴백                  — SW가 살아있는 동안만 작동
 const hasTrigger = typeof TimestampTrigger !== 'undefined';
 const timers = [];   // ② 폴백용 타이머 ID 목록
+const RETRY_LIMIT = 2;
 
 // 예약된 트리거 알람 태그 접두사
-const TRIGGER_PREFIX = 'alarm-h';
+const TRIGGER_PREFIX = 'scheduled-alarm-';
 
 async function cancelTriggerAlarms() {
   try {
     const ns = await self.registration.getNotifications({ includeTriggered: true });
     ns.filter(n => n.tag?.startsWith(TRIGGER_PREFIX)).forEach(n => n.close());
   } catch { /* includeTriggered 미지원 환경 — 무시 */ }
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function showNotificationWithRetry(title, options, attempt = 0) {
+  try {
+    await self.registration.showNotification(title, options);
+  } catch (err) {
+    if (attempt >= RETRY_LIMIT) throw err;
+    await wait(600 * (attempt + 1));
+    return showNotificationWithRetry(title, options, attempt + 1);
+  }
 }
 
 self.addEventListener('message', e => {
@@ -53,9 +68,9 @@ self.addEventListener('message', e => {
       // ① TimestampTrigger: OS가 직접 관리 → 앱 종료 후에도 동작
       cancelTriggerAlarms().then(() => {
         alarms.forEach(a => {
-          self.registration.showNotification('정시 알람 🔔', {
+          showNotificationWithRetry('정시 알람 🔔', {
             body:               a.label,
-            tag:                `${TRIGGER_PREFIX}${a.hour}`,
+            tag:                a.tag || `${TRIGGER_PREFIX}${a.hour}`,
             showTrigger:        new TimestampTrigger(Date.now() + a.delay),
             renotify:           true,
             requireInteraction: false,
@@ -68,9 +83,9 @@ self.addEventListener('message', e => {
       // ② 폴백: SW 내 setTimeout (SW가 살아있는 동안만 작동)
       alarms.forEach(a => {
         const id = setTimeout(() => {
-          self.registration.showNotification('정시 알람 🔔', {
+          showNotificationWithRetry('정시 알람 🔔', {
             body:               a.label,
-            tag:                `alarm-${a.hour}`,
+            tag:                a.tag || `${TRIGGER_PREFIX}${a.hour}`,
             renotify:           true,
             requireInteraction: false,
           });
@@ -92,7 +107,7 @@ self.addEventListener('message', e => {
         .then(ns => ns.forEach(n => n.close()));
       return;
     }
-    self.registration.showNotification(e.data.title, {
+    showNotificationWithRetry(e.data.title, {
       body:               e.data.body,
       tag:                'alarm-status',
       renotify:           false,

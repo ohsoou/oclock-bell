@@ -197,6 +197,31 @@ header {
 .clock-card.am .clock-h,
 .clock-card.am .clock-m { color: #1a2d4a; }
 
+.clock-sec-wrap {
+  display: flex;
+  align-items: flex-start;
+  margin-left: 4px;
+  padding-top: 14px;
+}
+
+.clock-sec-sep {
+  font-size: 2rem;
+  font-weight: 500;
+  color: rgba(255,255,255,0.45);
+  transition: color 1.2s ease;
+}
+
+.clock-s {
+  min-width: 2ch;
+  font-size: 2rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.9);
+  transition: color 1.2s ease;
+}
+
+.clock-card.am .clock-sec-sep { color: rgba(26,45,74,0.35); }
+.clock-card.am .clock-s { color: rgba(26,45,74,0.9); }
+
 .clock-sep {
   font-size: 4.5rem; font-weight: 300;
   color: rgba(255,255,255,0.4);
@@ -407,6 +432,33 @@ header {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+.info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.info-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-3);
+}
+.info-value {
+  text-align: right;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text);
 }
 .row-item-text { flex: 1; min-width: 0; }
 .row-item-label {

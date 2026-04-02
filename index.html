@@ -76,6 +76,10 @@
         <span class="clock-h" id="clock-h">--</span>
         <span class="clock-sep">:</span>
         <span class="clock-m" id="clock-m">--</span>
+        <span class="clock-sec-wrap">
+          <span class="clock-sec-sep">:</span>
+          <span class="clock-s" id="clock-s">--</span>
+        </span>
       </div>
       <div class="clock-date" id="clock-date"></div>
     </div>
@@ -143,6 +147,16 @@
     <!-- Notification Settings -->
     <div class="card settings-card">
       <p class="section-title">알림</p>
+      <div class="info-list">
+        <div class="info-row">
+          <span class="info-label">권한 상태</span>
+          <span class="info-value" id="notif-permission-status">확인 중...</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">백그라운드 지원</span>
+          <span class="info-value" id="background-support-status">확인 중...</span>
+        </div>
+      </div>
       <div class="row-item">
         <div class="row-item-text">
           <span class="row-item-label">상태 알림 표시</span>

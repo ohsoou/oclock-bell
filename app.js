@@ -31,6 +31,7 @@ const $ = id => document.getElementById(id);
 // main
 const $clockH      = $('clock-h');
 const $clockM      = $('clock-m');
+const $clockS      = $('clock-s');
 const $clockAmpm   = $('clock-ampm'); // null이면 무시
 const $clockDate   = $('clock-date');
 const $startSel    = $('start-hour');
@@ -64,6 +65,8 @@ const $testLabel    = $('test-label');
 const $resetBtn        = $('reset-btn');
 const $statusNotifTgl  = $('status-notif-toggle');
 const $testModeTgl     = $('test-mode-toggle');
+const $notifPermStatus = $('notif-permission-status');
+const $bgSupportStatus = $('background-support-status');
 
 // ── Native Android bridge (present when running inside WebView wrapper) ──
 const native = window.NativeAlarm ?? null;
@@ -74,6 +77,7 @@ let testMode = false;
 let wakeLock = null;
 let audioCtx = null;
 let worker   = null;
+let swReady  = null;
 
 // ── Init ─────────────────────────────────────────────────────────
 async function init() {
@@ -107,7 +111,10 @@ async function init() {
   $testModeTgl.checked = s.testMode;
 
   await registerSW();
+  swReady = navigator.serviceWorker?.ready ?? null;
   checkPermissionBanner();
+  updateNotificationStatusUI();
+  updateBackgroundSupportUI();
   checkInstallTip();
   populateVoices();
   initGeolocation();
@@ -121,7 +128,7 @@ async function init() {
     applyToggleUI(true);
     acquireWakeLock();
     startSilentAudio();
-    swSchedule();
+    syncBackgroundAlarmScheduling();
     // Worker에 알람 복원 — startWorkerTimer 이후 호출되므로 약간 지연
     setTimeout(() => {
       worker?.postMessage({ type: 'SET_ALARM', enabled: true,
@@ -179,8 +186,9 @@ function onWorkerMessage(e) {
   }
 
   if (type === 'ALARM') {
-    // Worker가 정시를 직접 감지해서 알림 — 폴링 없이 정밀 발화
-    if (alarmOn) fireAlarm(e.data.hour);
+    // 포그라운드에서는 Worker가 즉시 발화하고,
+    // 백그라운드에서는 SW 예약 알림만 단일 소스로 사용한다.
+    if (alarmOn && document.visibilityState === 'visible') fireAlarm(e.data.hour);
   }
 
   if (type === 'NTP_SYNCED') {
@@ -294,10 +302,11 @@ async function initGeolocation() {
 
 // ── Clock render ──────────────────────────────────────────────────
 function renderClock(now) {
-  const h = now.getHours(), m = now.getMinutes();
+  const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
   const disp = h === 0 ? 12 : h > 12 ? h - 12 : h;
   $clockH.textContent    = String(disp).padStart(2, '0');
   $clockM.textContent    = String(m).padStart(2, '0');
+  if ($clockS) $clockS.textContent = String(s).padStart(2, '0');
   if ($clockAmpm) $clockAmpm.textContent = h < 12 ? '오전' : '오후';
   const days = ['일','월','화','수','목','금','토'];
   $clockDate.textContent =
@@ -473,7 +482,7 @@ function onToggle() {
   if (alarmOn) {
     acquireWakeLock();
     startSilentAudio();
-    swSchedule();
+    syncBackgroundAlarmScheduling();
     renderNextAlarm();
     worker?.postMessage({ type: 'SET_ALARM', enabled: true, startHour, endHour, testMode });
     native?.setAlarm(true, startHour, endHour);   // native Android AlarmManager
@@ -486,6 +495,7 @@ function onToggle() {
     native?.setAlarm(false, startHour, endHour);
   }
   updateStatusNotification();
+  updateBackgroundSupportUI();
 }
 
 function applyToggleUI(on) {
@@ -504,7 +514,7 @@ function onRangeChange() {
   const startHour = +$startSel.value, endHour = +$endSel.value;
   saveSettings({ startHour, endHour });
   if (alarmOn) {
-    swSchedule();
+    syncBackgroundAlarmScheduling();
     renderNextAlarm();
     worker?.postMessage({ type: 'UPDATE_RANGE', startHour, endHour });
     native?.setAlarm(true, startHour, endHour);
@@ -567,13 +577,27 @@ function startSilentAudio() {
 function stopSilentAudio() { audioCtx?.close(); audioCtx = null; }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && alarmOn) { acquireWakeLock(); swSchedule(); }
-  if (document.visibilityState === 'hidden'  && alarmOn) { swSchedule(); }
+  if (!alarmOn) return;
+  if (document.visibilityState === 'visible') acquireWakeLock();
+  syncBackgroundAlarmScheduling();
 });
 
 // ── Service Worker ────────────────────────────────────────────────
-function swSchedule() {
-  if (!navigator.serviceWorker?.controller) return;
+async function withServiceWorkerController() {
+  if (!('serviceWorker' in navigator)) return null;
+  if (navigator.serviceWorker.controller) return navigator.serviceWorker.controller;
+  try {
+    const reg = await (swReady ?? navigator.serviceWorker.ready);
+    return reg?.active ?? navigator.serviceWorker.controller ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function swSchedule() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const controller = await withServiceWorkerController();
+  if (!controller) return;
   const { startHour, endHour } = loadSettings();
   const base = Date.now();
   const alarms = [];
@@ -584,12 +608,28 @@ function swSchedule() {
     else          t.setHours(t.getHours() + d, 0, 0, 0);
     const nh = t.getHours();
     if (!inRange(nh, startHour, endHour)) continue;
-    alarms.push({ delay: t.getTime() - base, hour: nh, label: HOUR_KO[nh] });
+    alarms.push({
+      delay: t.getTime() - base,
+      hour: nh,
+      label: HOUR_KO[nh],
+      tag: `scheduled-alarm-${t.getTime()}`,
+    });
   }
-  navigator.serviceWorker.controller.postMessage({ type: 'SCHEDULE', alarms });
+  controller.postMessage({ type: 'SCHEDULE', alarms });
 }
-function swCancel() {
-  navigator.serviceWorker?.controller?.postMessage({ type: 'CANCEL' });
+async function swCancel() {
+  const controller = await withServiceWorkerController();
+  controller?.postMessage({ type: 'CANCEL' });
+}
+
+function syncBackgroundAlarmScheduling() {
+  if (!alarmOn) {
+    swCancel();
+    return;
+  }
+
+  if (document.visibilityState === 'hidden') swSchedule();
+  else swCancel();
 }
 
 // ── 상태 알림 (영구 알림창 표시) ─────────────────────────────────
@@ -600,6 +640,7 @@ function onStatusNotifToggle() {
   if (enabled) {
     // 알림 권한 확인 후 표시
     Notification.requestPermission().then(r => {
+      updateNotificationStatusUI();
       if (r === 'granted') {
         $permBanner.classList.add('hidden');
         updateStatusNotification();
@@ -621,17 +662,19 @@ function onTestModeToggle() {
   worker?.postMessage({ type: 'TEST_MODE', enabled: testMode });
   native?.setTestMode(testMode);
   if (alarmOn) {
-    swSchedule();
+    syncBackgroundAlarmScheduling();
     renderNextAlarm();
   }
+  updateBackgroundSupportUI();
   showToast(testMode ? '테스트 모드 켜짐 (1분 간격)' : '테스트 모드 꺼짐');
 }
 
-function updateStatusNotification() {
+async function updateStatusNotification() {
   const s = loadSettings();
   if (!s.statusNotif) return;
-  if (!navigator.serviceWorker?.controller) return;
   if (Notification.permission !== 'granted') return;
+  const controller = await withServiceWorkerController();
+  if (!controller) return;
 
   const { startHour, endHour } = s;
   const startLabel = hourLabel(startHour);
@@ -653,7 +696,7 @@ function updateStatusNotification() {
     }
   }
 
-  navigator.serviceWorker.controller.postMessage({
+  controller.postMessage({
     type: 'STATUS_NOTIF',
     show: true,
     title: alarmOn ? '🔔 정시 알람 켜짐' : '🔕 정시 알람 꺼짐',
@@ -663,8 +706,9 @@ function updateStatusNotification() {
   });
 }
 
-function dismissStatusNotification() {
-  navigator.serviceWorker?.controller?.postMessage({ type: 'STATUS_NOTIF', show: false });
+async function dismissStatusNotification() {
+  const controller = await withServiceWorkerController();
+  controller?.postMessage({ type: 'STATUS_NOTIF', show: false });
 }
 
 function hourLabel(h) {
@@ -675,7 +719,15 @@ function hourLabel(h) {
 
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return;
-  try { await navigator.serviceWorker.register('./sw.js'); } catch {}
+  try {
+    await navigator.serviceWorker.register('./sw.js');
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      updateBackgroundSupportUI();
+      updateNotificationStatusUI();
+      if (alarmOn) syncBackgroundAlarmScheduling();
+      updateStatusNotification();
+    });
+  } catch {}
 }
 
 // ── Notification permission ───────────────────────────────────────
@@ -687,7 +739,44 @@ function checkPermissionBanner() {
 }
 async function askNotificationPermission() {
   const r = await Notification.requestPermission();
-  if (r === 'granted') { $permBanner.classList.add('hidden'); if (alarmOn) swSchedule(); }
+  updateNotificationStatusUI();
+  if (r === 'granted') { $permBanner.classList.add('hidden'); if (alarmOn) syncBackgroundAlarmScheduling(); }
+}
+
+function updateNotificationStatusUI() {
+  if (!$notifPermStatus) return;
+  if (!('Notification' in window)) {
+    $notifPermStatus.textContent = '미지원';
+    return;
+  }
+
+  const label = {
+    granted: '허용됨',
+    denied: '차단됨',
+    default: '요청 전',
+  }[Notification.permission] || '확인 불가';
+
+  $notifPermStatus.textContent = label;
+}
+
+function updateBackgroundSupportUI() {
+  if (!$bgSupportStatus) return;
+  const supportsSw = 'serviceWorker' in navigator;
+  const supportsNotif = 'Notification' in window;
+  const supportsTrigger = typeof window.TimestampTrigger !== 'undefined';
+  const installed = window.matchMedia('(display-mode: standalone)').matches;
+
+  if (!supportsSw || !supportsNotif) {
+    $bgSupportStatus.textContent = '제한됨';
+    return;
+  }
+
+  if (supportsTrigger) {
+    $bgSupportStatus.textContent = installed ? '강화됨' : '지원됨';
+    return;
+  }
+
+  $bgSupportStatus.textContent = '부분 지원';
 }
 
 // ── PWA install tip ───────────────────────────────────────────────
