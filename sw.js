@@ -1,4 +1,4 @@
-const CACHE = 'oclock-v17';
+const CACHE = 'oclock-v18';
 const ASSETS = ['./', './index.html', './style.css', './app.js',
                 './timer.worker.js', './manifest.json', './icon.svg'];
 
@@ -21,52 +21,85 @@ self.addEventListener('fetch', e => {
 });
 
 // ── 백그라운드 알람 스케줄 ─────────────────────────────────────
-// 페이지에서 받은 alarms 배열로 setTimeout 예약
-// SW는 언제든 종료될 수 있으므로, 페이지가 백그라운드로 갈 때마다 재예약
-const timers = [];
+// TimestampTrigger 지원 여부에 따라 두 가지 전략 사용:
+//   ① TimestampTrigger (Chrome Android) — SW가 종료돼도 OS가 알림 발생
+//   ② setTimeout 폴백                  — SW가 살아있는 동안만 작동
+const hasTrigger = typeof TimestampTrigger !== 'undefined';
+const timers = [];   // ② 폴백용 타이머 ID 목록
+
+// 예약된 트리거 알람 태그 접두사
+const TRIGGER_PREFIX = 'alarm-h';
+
+async function cancelTriggerAlarms() {
+  try {
+    const ns = await self.registration.getNotifications({ includeTriggered: true });
+    ns.filter(n => n.tag?.startsWith(TRIGGER_PREFIX)).forEach(n => n.close());
+  } catch { /* includeTriggered 미지원 환경 — 무시 */ }
+}
 
 self.addEventListener('message', e => {
   if (!e.data) return;
 
   if (e.data.type === 'SCHEDULE') {
+    // ── 기존 예약 전부 취소 ──────────────────────────────────────
     timers.forEach(id => clearTimeout(id));
     timers.length = 0;
 
-    (e.data.alarms || []).forEach(a => {
-      if (a.delay > 0 && a.delay < 24 * 60 * 60 * 1000) {
+    const alarms = (e.data.alarms || []).filter(
+      a => a.delay > 0 && a.delay < 24 * 60 * 60 * 1000
+    );
+
+    if (hasTrigger) {
+      // ① TimestampTrigger: OS가 직접 관리 → 앱 종료 후에도 동작
+      cancelTriggerAlarms().then(() => {
+        alarms.forEach(a => {
+          self.registration.showNotification('정시 알람 🔔', {
+            body:               a.label,
+            tag:                `${TRIGGER_PREFIX}${a.hour}`,
+            showTrigger:        new TimestampTrigger(Date.now() + a.delay),
+            renotify:           true,
+            requireInteraction: false,
+            icon:               './icon.svg',
+            badge:              './icon.svg',
+          });
+        });
+      });
+    } else {
+      // ② 폴백: SW 내 setTimeout (SW가 살아있는 동안만 작동)
+      alarms.forEach(a => {
         const id = setTimeout(() => {
           self.registration.showNotification('정시 알람 🔔', {
-            body: a.label,
-            tag:  `alarm-${a.hour}`,
-            renotify: true,
+            body:               a.label,
+            tag:                `alarm-${a.hour}`,
+            renotify:           true,
             requireInteraction: false,
           });
         }, a.delay);
         timers.push(id);
-      }
-    });
+      });
+    }
   }
 
   if (e.data.type === 'CANCEL') {
     timers.forEach(id => clearTimeout(id));
     timers.length = 0;
+    if (hasTrigger) cancelTriggerAlarms();
   }
 
   if (e.data.type === 'STATUS_NOTIF') {
     if (!e.data.show) {
-      // 상태 알림 닫기
       self.registration.getNotifications({ tag: 'alarm-status' })
         .then(ns => ns.forEach(n => n.close()));
       return;
     }
     self.registration.showNotification(e.data.title, {
-      body:              e.data.body,
-      tag:               'alarm-status',   // 같은 tag → 기존 알림 교체
-      renotify:          false,            // 교체 시 소리/진동 없음
-      silent:            true,
+      body:               e.data.body,
+      tag:                'alarm-status',
+      renotify:           false,
+      silent:             true,
       requireInteraction: false,
-      icon:              './icon.svg',
-      badge:             './icon.svg',
+      icon:               './icon.svg',
+      badge:              './icon.svg',
     });
   }
 });
