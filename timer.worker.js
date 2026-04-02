@@ -17,6 +17,7 @@ let ntpSynced    = false;
 let alarmEnabled = false;
 let startHour    = 0;
 let endHour      = 24;
+let testMode     = false;  // true → 1분 간격 (테스트용)
 let alarmTimer   = null;
 let tickTimer    = null;
 
@@ -53,21 +54,25 @@ function now() {
   return Date.now() + ntpOffset;
 }
 
-// ── 다음 정시까지 ms 계산 ────────────────────────────────────────
-function msUntilNextOclock() {
-  const n        = new Date(now());
-  const next     = new Date(n);
-  next.setHours(n.getHours() + 1, 0, 0, 0);
+// ── 다음 알람 경계까지 ms 계산 ──────────────────────────────────
+// testMode: 다음 정분(:00초) / 일반: 다음 정시(:00:00)
+function msUntilNextBoundary() {
+  const n    = new Date(now());
+  const next = new Date(n);
+  if (testMode) {
+    next.setMinutes(n.getMinutes() + 1, 0, 0);
+  } else {
+    next.setHours(n.getHours() + 1, 0, 0, 0);
+  }
   return next.getTime() - n.getTime();
 }
 
 // ── 알람 정밀 스케줄링 ───────────────────────────────────────────
-// setInterval 폴링이 아닌 setTimeout 단발 예약 → 다음 정시에 정확히 발화
 function scheduleNextAlarm() {
   if (alarmTimer) clearTimeout(alarmTimer);
   if (!alarmEnabled) return;
 
-  const delay = msUntilNextOclock();
+  const delay = msUntilNextBoundary();
 
   alarmTimer = setTimeout(() => {
     const h = new Date(now()).getHours();
@@ -110,7 +115,13 @@ self.onmessage = async (e) => {
     alarmEnabled = e.data.enabled;
     startHour    = e.data.startHour ?? startHour;
     endHour      = e.data.endHour   ?? endHour;
+    testMode     = e.data.testMode  ?? testMode;
     scheduleNextAlarm();
+  }
+
+  if (type === 'TEST_MODE') {
+    testMode = e.data.enabled;
+    if (alarmEnabled) scheduleNextAlarm();
   }
 
   if (type === 'UPDATE_RANGE') {

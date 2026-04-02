@@ -63,9 +63,11 @@ const $testIcon     = $('test-icon');
 const $testLabel    = $('test-label');
 const $resetBtn        = $('reset-btn');
 const $statusNotifTgl  = $('status-notif-toggle');
+const $testModeTgl     = $('test-mode-toggle');
 
 // ── Runtime state ────────────────────────────────────────────────
 let alarmOn  = false;
+let testMode = false;
 let wakeLock = null;
 let audioCtx = null;
 let worker   = null;
@@ -93,6 +95,7 @@ async function init() {
   $testBtn.addEventListener('click',         onTestVoice);
   $resetBtn.addEventListener('click',        onResetTTS);
   $statusNotifTgl.addEventListener('change', onStatusNotifToggle);
+  $testModeTgl.addEventListener('change',    onTestModeToggle);
 
   // populate settings page from saved values
   applyTTSToUI(s);
@@ -117,7 +120,7 @@ async function init() {
     // Worker에 알람 복원 — startWorkerTimer 이후 호출되므로 약간 지연
     setTimeout(() => {
       worker?.postMessage({ type: 'SET_ALARM', enabled: true,
-        startHour: s.startHour, endHour: s.endHour });
+        startHour: s.startHour, endHour: s.endHour, testMode });
     }, 200);
   }
 }
@@ -306,6 +309,7 @@ function fireAlarm(h) {
   speak(HOUR_KO[h]);
   showToast(HOUR_KO[h]);
   animateBell();
+  navigator.vibrate?.(300);  // 진동 모드일 때 한 번 진동
   // 정시 후 "다음 알람" 갱신
   setTimeout(updateStatusNotification, 2000);
 }
@@ -467,7 +471,7 @@ function onToggle() {
     swSchedule();
     renderNextAlarm();
     // Worker에 알람 활성화 및 범위 전달
-    worker?.postMessage({ type: 'SET_ALARM', enabled: true, startHour, endHour });
+    worker?.postMessage({ type: 'SET_ALARM', enabled: true, startHour, endHour, testMode });
   } else {
     releaseWakeLock();
     stopSilentAudio();
@@ -505,8 +509,19 @@ function onRangeChange() {
 function renderNextAlarm() {
   const { startHour, endHour } = loadSettings();
   const now = new Date();
-  const h = now.getHours(), m = now.getMinutes();
+  const h = now.getHours();
 
+  if (testMode) {
+    if (!inRange(h, startHour, endHour)) {
+      $nextText.textContent = '범위 내 알람 없음';
+      return;
+    }
+    const sec = 60 - now.getSeconds();
+    $nextText.textContent = `[테스트] ${sec}초 후 · ${HOUR_KO[h]}`;
+    return;
+  }
+
+  const m = now.getMinutes();
   for (let d = 1; d <= 24; d++) {
     const nh = (h + d) % 24;
     if (!inRange(nh, startHour, endHour)) continue;
@@ -553,13 +568,16 @@ document.addEventListener('visibilitychange', () => {
 function swSchedule() {
   if (!navigator.serviceWorker?.controller) return;
   const { startHour, endHour } = loadSettings();
-  const now = Date.now();
+  const base = Date.now();
   const alarms = [];
-  for (let d = 1; d <= 24; d++) {
-    const t = new Date(); t.setHours(t.getHours() + d, 0, 0, 0);
+  const slots  = testMode ? 24 : 24;      // 24 entries either way
+  for (let d = 1; d <= slots; d++) {
+    const t = new Date();
+    if (testMode) t.setMinutes(t.getMinutes() + d, 0, 0);
+    else          t.setHours(t.getHours() + d, 0, 0, 0);
     const nh = t.getHours();
     if (!inRange(nh, startHour, endHour)) continue;
-    alarms.push({ delay: t.getTime() - now, hour: nh, label: HOUR_KO[nh] });
+    alarms.push({ delay: t.getTime() - base, hour: nh, label: HOUR_KO[nh] });
   }
   navigator.serviceWorker.controller.postMessage({ type: 'SCHEDULE', alarms });
 }
@@ -588,6 +606,16 @@ function onStatusNotifToggle() {
   } else {
     dismissStatusNotification();
   }
+}
+
+function onTestModeToggle() {
+  testMode = $testModeTgl.checked;
+  worker?.postMessage({ type: 'TEST_MODE', enabled: testMode });
+  if (alarmOn) {
+    swSchedule();
+    renderNextAlarm();
+  }
+  showToast(testMode ? '테스트 모드 켜짐 (1분 간격)' : '테스트 모드 꺼짐');
 }
 
 function updateStatusNotification() {
