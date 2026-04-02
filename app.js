@@ -65,6 +65,9 @@ const $resetBtn        = $('reset-btn');
 const $statusNotifTgl  = $('status-notif-toggle');
 const $testModeTgl     = $('test-mode-toggle');
 
+// ── Native Android bridge (present when running inside WebView wrapper) ──
+const native = window.NativeAlarm ?? null;
+
 // ── Runtime state ────────────────────────────────────────────────
 let alarmOn  = false;
 let testMode = false;
@@ -472,14 +475,15 @@ function onToggle() {
     startSilentAudio();
     swSchedule();
     renderNextAlarm();
-    // Worker에 알람 활성화 및 범위 전달
     worker?.postMessage({ type: 'SET_ALARM', enabled: true, startHour, endHour, testMode });
+    native?.setAlarm(true, startHour, endHour);   // native Android AlarmManager
   } else {
     releaseWakeLock();
     stopSilentAudio();
     swCancel();
     $nextCard.classList.remove('show');
     worker?.postMessage({ type: 'SET_ALARM', enabled: false });
+    native?.setAlarm(false, startHour, endHour);
   }
   updateStatusNotification();
 }
@@ -503,6 +507,7 @@ function onRangeChange() {
     swSchedule();
     renderNextAlarm();
     worker?.postMessage({ type: 'UPDATE_RANGE', startHour, endHour });
+    native?.setAlarm(true, startHour, endHour);
   }
   updateStatusNotification();
 }
@@ -614,6 +619,7 @@ function onTestModeToggle() {
   testMode = $testModeTgl.checked;
   saveSettings({ testMode });
   worker?.postMessage({ type: 'TEST_MODE', enabled: testMode });
+  native?.setTestMode(testMode);
   if (alarmOn) {
     swSchedule();
     renderNextAlarm();
