@@ -395,11 +395,17 @@ header {
   z-index: 999;
   background: linear-gradient(135deg, var(--purple), var(--purple-dark));
   color: #fff; border-radius: 0 0 var(--r) var(--r);
-  padding: 20px 32px 22px;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 20px 18px;
   box-shadow: 0 8px 32px rgba(124,92,252,0.35);
-  font-size: 2rem; font-weight: 900; text-align: center;
+  font-size: clamp(1.2rem, 5.8vw, 2rem);
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
   transition: transform 0.4s cubic-bezier(0.34,1.56,0.64,1);
-  white-space: nowrap; width: max-content; max-width: 90vw;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  width: min(calc(100vw - 24px), 520px);
+  max-width: none;
 }
 .toast.show { transform: translateX(-50%) translateY(0); }
 

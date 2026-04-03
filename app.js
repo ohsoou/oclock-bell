@@ -834,7 +834,7 @@ function onTestModeToggle() {
     renderNextAlarm();
   }
   updateBackgroundSupportUI();
-  showToast(testMode ? '테스트 모드 켜짐 (1분 간격)' : '테스트 모드 꺼짐');
+  showToast(testMode ? '테스트 모드 켜짐\n1분 간격 알림' : '테스트 모드 꺼짐');
 }
 
 function onBatteryExemptionRequest() {
