@@ -75,7 +75,7 @@ body.show-settings #view-settings { transform: translateX(0); }
 
 /* ── Layout max-width ────────────────────────────────────────── */
 header, .card, .next-card, .perm-banner, .install-tip,
-.test-btn, .reset-btn { width: 100%; max-width: 400px; }
+.test-btn, .reset-btn, .settings-footer { width: 100%; max-width: 400px; }
 
 /* ── Header ─────────────────────────────────────────────────── */
 header {
@@ -607,6 +607,19 @@ header {
   transition: background 0.15s, color 0.15s;
 }
 .reset-btn:active { background: var(--border); color: var(--text-2); }
+
+.settings-footer {
+  margin-top: auto;
+  padding: 6px 4px 0;
+}
+
+.app-version {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+}
 
 /* ══════════════════════════════════════════════════════════════
    GUIDE OVERLAY

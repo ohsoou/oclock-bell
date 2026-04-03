@@ -1,6 +1,8 @@
-const CACHE = 'oclock-v21';
+importScripts('./version.js');
+
+const CACHE = `oclock-v${self.APP_META?.version ?? 'dev'}`;
 const ASSETS = ['./', './index.html', './style.css', './app.js',
-                './timer.worker.js', './manifest.json', './icon.svg'];
+                './timer.worker.js', './manifest.json', './icon.svg', './version.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));

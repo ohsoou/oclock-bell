@@ -34,6 +34,11 @@
 | PWA | 홈 화면 설치 및 오프라인 캐시 지원 |
 | Wake Lock | 앱이 열린 동안 화면 꺼짐 방지 시도 |
 
+## 버전 / 릴리즈 노트
+
+- 현재 앱 버전은 `version.js`에서 관리합니다.
+- 릴리즈 노트는 `CHANGELOG.md`에 누적합니다.
+
 ## 파일 구조
 
 ```text
@@ -44,7 +49,9 @@ oclock bell/
 ├── timer.worker.js
 ├── sw.js
 ├── manifest.json
+├── version.js
 ├── icon.svg
+├── CHANGELOG.md
 └── README.md
 ```
 

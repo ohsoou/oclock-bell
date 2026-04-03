@@ -1,5 +1,10 @@
 'use strict';
 
+const APP_META = window.APP_META ?? Object.freeze({
+  version: 'dev',
+  releaseDate: '',
+});
+
 // ── 한국어 시각 맵 ──────────────────────────────────────────────
 const HOUR_KO = [
   '자정이에요~', '한시!',   '두시!',   '세시!',
@@ -76,6 +81,7 @@ const $bgSupportStatus = $('background-support-status');
 const $statusNotifRow  = $('status-notif-row');
 const $voiceSettingsCard = $('voice-settings-card');
 const $batteryBtn      = $('battery-btn');
+const $appVersion      = $('app-version');
 
 // ── Native Android bridge (present when running inside WebView wrapper) ──
 const native = window.NativeAlarm ?? null;
@@ -189,9 +195,21 @@ function refreshNativeStateUI() {
   updateBatteryOptimizationUI();
 }
 
+function formatAppVersion() {
+  const version = APP_META.version || 'dev';
+  return APP_META.releaseDate
+    ? `버전 ${version} · ${APP_META.releaseDate}`
+    : `버전 ${version}`;
+}
+
+function renderAppVersion() {
+  if ($appVersion) $appVersion.textContent = formatAppVersion();
+}
+
 // ── Init ─────────────────────────────────────────────────────────
 async function init() {
   const s = loadInitialSettings();
+  renderAppVersion();
 
   buildHourOptions($startSel, s.startHour);
   buildHourOptions($endSel,   s.endHour);
