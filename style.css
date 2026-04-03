@@ -590,6 +590,7 @@ header {
   z-index: 2000;
   pointer-events: none;
   opacity: 0;
+  overflow: hidden;   /* prevent 9999px shadow from creating scroll */
   transition: opacity 0.3s ease;
 }
 .guide-overlay.active {
@@ -601,7 +602,7 @@ header {
 .guide-spotlight {
   position: fixed;
   border-radius: 16px;
-  box-shadow: 0 0 0 100vmax rgba(10,12,24,0.74);
+  box-shadow: 0 0 0 9999px rgba(10,12,24,0.74);
   transition: top 0.35s cubic-bezier(0.4,0,0.2,1),
               left 0.35s cubic-bezier(0.4,0,0.2,1),
               width 0.35s cubic-bezier(0.4,0,0.2,1),
