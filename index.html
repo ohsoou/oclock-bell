@@ -145,19 +145,27 @@
     </header>
 
     <!-- Notification Settings -->
-    <div class="card settings-card">
+    <div class="card settings-card" id="notif-settings-card">
       <p class="section-title">알림</p>
       <div class="info-list">
         <div class="info-row">
-          <span class="info-label">권한 상태</span>
+          <span class="info-label">앱 알림</span>
           <span class="info-value" id="notif-permission-status">확인 중...</span>
         </div>
-        <div class="info-row">
+        <div class="info-row hidden" id="exact-alarm-row">
+          <span class="info-label">정확한 알람</span>
+          <span class="info-value" id="exact-alarm-status">확인 중...</span>
+        </div>
+        <div class="info-row hidden" id="battery-optimization-row">
+          <span class="info-label">배터리 최적화</span>
+          <span class="info-value" id="battery-optimization-status">확인 중...</span>
+        </div>
+        <div class="info-row" id="background-support-row">
           <span class="info-label">백그라운드 지원</span>
           <span class="info-value" id="background-support-status">확인 중...</span>
         </div>
       </div>
-      <div class="row-item">
+      <div class="row-item" id="status-notif-row">
         <div class="row-item-text">
           <span class="row-item-label">상태 알림 표시</span>
           <span class="row-item-desc">알람 켜짐/꺼짐 상태를 알림창에 항상 표시</span>
@@ -167,10 +175,11 @@
           <span class="toggle-track"><span class="toggle-thumb"></span></span>
         </label>
       </div>
+      <button class="secondary-btn hidden" id="battery-btn">배터리 최적화 예외 요청</button>
     </div>
 
     <!-- Voice Selection -->
-    <div class="card settings-card">
+    <div class="card settings-card" id="voice-settings-card">
       <p class="section-title">목소리</p>
       <select class="voice-select" id="voice-select">
         <option value="">자동 (한국어 기본)</option>
@@ -178,7 +187,7 @@
     </div>
 
     <!-- TTS Sliders -->
-    <div class="card settings-card">
+    <div class="card settings-card" id="tts-settings-card">
       <p class="section-title">음성 조절</p>
 
       <div class="slider-row">
@@ -225,9 +234,9 @@
     </div>
 
     <!-- Test Mode -->
-    <div class="card settings-card">
+    <div class="card settings-card" id="test-mode-card">
       <p class="section-title">개발 / 테스트</p>
-      <div class="row-item">
+      <div class="row-item" id="test-mode-row">
         <div class="row-item-text">
           <span class="row-item-label">테스트 모드</span>
           <span class="row-item-desc">1시간 간격을 1분으로 단축해서 알람을 빠르게 확인</span>

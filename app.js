@@ -51,6 +51,7 @@ const $installTip  = $('install-tip');
 const $settingsBtn = $('settings-btn');
 
 // settings page
+const $viewSettings  = $('view-settings');
 const $backBtn      = $('back-btn');
 const $voiceSel     = $('voice-select');
 const $pitchSlider  = $('pitch-slider');
@@ -66,10 +67,19 @@ const $resetBtn        = $('reset-btn');
 const $statusNotifTgl  = $('status-notif-toggle');
 const $testModeTgl     = $('test-mode-toggle');
 const $notifPermStatus = $('notif-permission-status');
+const $exactAlarmRow   = $('exact-alarm-row');
+const $exactAlarmStatus = $('exact-alarm-status');
+const $batteryOptRow   = $('battery-optimization-row');
+const $batteryOptStatus = $('battery-optimization-status');
+const $bgSupportRow    = $('background-support-row');
 const $bgSupportStatus = $('background-support-status');
+const $statusNotifRow  = $('status-notif-row');
+const $voiceSettingsCard = $('voice-settings-card');
+const $batteryBtn      = $('battery-btn');
 
 // ── Native Android bridge (present when running inside WebView wrapper) ──
 const native = window.NativeAlarm ?? null;
+const isNativeWrapper = !!native;
 
 // ── Runtime state ────────────────────────────────────────────────
 let alarmOn  = false;
@@ -78,10 +88,110 @@ let wakeLock = null;
 let audioCtx = null;
 let worker   = null;
 let swReady  = null;
+let uiTickTimer = null;
+let nativeState = null;
+
+function normalizeHour(value, fallback) {
+  return Number.isInteger(value) && value >= 0 && value <= 23 ? value : fallback;
+}
+
+function normalizeNumber(value, fallback, min, max) {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= min && num <= max ? num : fallback;
+}
+
+function readNativeState() {
+  if (!native?.getState) return null;
+
+  try {
+    const raw = JSON.parse(native.getState());
+    nativeState = {
+      alarmOn: !!raw.alarmOn,
+      startHour: normalizeHour(raw.startHour, DEFAULTS.startHour),
+      endHour: normalizeHour(raw.endHour, DEFAULTS.endHour),
+      testMode: !!raw.testMode,
+      pitch: normalizeNumber(raw.pitch, DEFAULTS.pitch, 0.5, 2.0),
+      rate: normalizeNumber(raw.rate, DEFAULTS.rate, 0.5, 1.5),
+      volume: normalizeNumber(raw.volume, DEFAULTS.volume, 0, 1.0),
+      notificationGranted: typeof raw.notificationGranted === 'boolean'
+        ? raw.notificationGranted
+        : null,
+      exactAlarmGranted: typeof raw.exactAlarmGranted === 'boolean'
+        ? raw.exactAlarmGranted
+        : null,
+      batteryOptimizationIgnored: typeof raw.batteryOptimizationIgnored === 'boolean'
+        ? raw.batteryOptimizationIgnored
+        : null,
+    };
+  } catch {}
+
+  return nativeState;
+}
+
+function loadInitialSettings() {
+  const local = loadSettings();
+  const raw = readNativeState();
+  if (!raw) return local;
+
+  const merged = {
+    ...local,
+    alarmOn: raw.alarmOn,
+    startHour: raw.startHour,
+    endHour: raw.endHour,
+    testMode: raw.testMode,
+    pitch: raw.pitch,
+    rate: raw.rate,
+    volume: raw.volume,
+    voiceURI: '',
+    // Status notification is a web-only concept and should stay off in native mode.
+    statusNotif: false,
+  };
+  localStorage.setItem('ocb', JSON.stringify(merged));
+  return merged;
+}
+
+function applyNativeWrapperUI() {
+  document.body.classList.add('native-wrapper');
+  $permBanner.classList.add('hidden');
+  $installTip.classList.add('hidden');
+  $statusNotifTgl.checked = false;
+  $statusNotifTgl.disabled = true;
+  $statusNotifRow?.classList.add('hidden');
+  $bgSupportRow?.classList.add('hidden');
+  $exactAlarmRow?.classList.remove('hidden');
+  $batteryOptRow?.classList.remove('hidden');
+  $voiceSettingsCard?.classList.add('hidden');
+  $batteryBtn?.classList.remove('hidden');
+  if ($testLabel) $testLabel.textContent = '알람 미리 듣기';
+}
+
+function ensureClockVisible() {
+  if ($clockH.textContent !== '--' || $clockM.textContent !== '--') return;
+  startUiClockTimer();
+}
+
+function syncNativeTtsConfig(settings = loadSettings()) {
+  if (!native?.setTtsConfig) return;
+  native.setTtsConfig(settings.pitch, settings.rate, settings.volume);
+}
+
+function formatNativeBoolStatus(value, enabledLabel, disabledLabel) {
+  if (value === true) return enabledLabel;
+  if (value === false) return disabledLabel;
+  return '확인 불가';
+}
+
+function refreshNativeStateUI() {
+  if (!isNativeWrapper) return;
+  readNativeState();
+  updateNotificationStatusUI();
+  updateExactAlarmStatusUI();
+  updateBatteryOptimizationUI();
+}
 
 // ── Init ─────────────────────────────────────────────────────────
 async function init() {
-  const s = loadSettings();
+  const s = loadInitialSettings();
 
   buildHourOptions($startSel, s.startHour);
   buildHourOptions($endSel,   s.endHour);
@@ -103,22 +213,32 @@ async function init() {
   $resetBtn.addEventListener('click',        onResetTTS);
   $statusNotifTgl.addEventListener('change', onStatusNotifToggle);
   $testModeTgl.addEventListener('change',    onTestModeToggle);
+  $batteryBtn?.addEventListener('click',     onBatteryExemptionRequest);
 
   // populate settings page from saved values
   applyTTSToUI(s);
   $statusNotifTgl.checked = s.statusNotif;
   testMode = s.testMode;
   $testModeTgl.checked = s.testMode;
+  renderClock(new Date());
 
   await registerSW();
   swReady = navigator.serviceWorker?.ready ?? null;
-  checkPermissionBanner();
+  if (isNativeWrapper) applyNativeWrapperUI();
+  else checkPermissionBanner();
   updateNotificationStatusUI();
+  updateExactAlarmStatusUI();
+  updateBatteryOptimizationUI();
   updateBackgroundSupportUI();
   checkInstallTip();
-  populateVoices();
+  if (!isNativeWrapper) populateVoices();
   initGeolocation();
-  startWorkerTimer();
+  if (isNativeWrapper) {
+    startUiClockTimer();
+  } else {
+    startWorkerTimer();
+  }
+  setTimeout(ensureClockVisible, 1200);
 
   // 홈 가이드 — 첫 방문 시 표시
   setTimeout(() => startGuide('home'), 600);
@@ -126,14 +246,16 @@ async function init() {
   if (s.alarmOn) {
     alarmOn = true;
     applyToggleUI(true);
-    acquireWakeLock();
-    startSilentAudio();
-    syncBackgroundAlarmScheduling();
-    // Worker에 알람 복원 — startWorkerTimer 이후 호출되므로 약간 지연
-    setTimeout(() => {
-      worker?.postMessage({ type: 'SET_ALARM', enabled: true,
-        startHour: s.startHour, endHour: s.endHour, testMode });
-    }, 200);
+    if (!isNativeWrapper) {
+      acquireWakeLock();
+      startSilentAudio();
+      syncBackgroundAlarmScheduling();
+      // Worker에 알람 복원 — startWorkerTimer 이후 호출되므로 약간 지연
+      setTimeout(() => {
+        worker?.postMessage({ type: 'SET_ALARM', enabled: true,
+          startHour: s.startHour, endHour: s.endHour, testMode });
+      }, 200);
+    }
   }
 }
 
@@ -161,20 +283,35 @@ function buildHourOptions(sel, selected) {
 // ── Web Worker timer ──────────────────────────────────────────────
 let ntpSynced = false;
 
+function startUiClockTimer() {
+  clearTimeout(uiTickTimer);
+  onTick(Date.now());
+
+  (function tick() {
+    const ms = 1000 - (Date.now() % 1000);
+    uiTickTimer = setTimeout(() => {
+      onTick(Date.now());
+      tick();
+    }, ms);
+  })();
+}
+
 function startWorkerTimer() {
   if (typeof Worker !== 'undefined') {
     worker = new Worker('./timer.worker.js');
     worker.onmessage = onWorkerMessage;
+    worker.onerror = () => {
+      worker?.terminate();
+      worker = null;
+      startUiClockTimer();
+      showNtpStatus('워커 시작 실패 — 기본 시계 모드로 전환');
+    };
     worker.postMessage({ type: 'START' });
 
     // 1시간마다 NTP 재동기화
     setInterval(() => worker.postMessage({ type: 'RESYNC' }), 60 * 60 * 1000);
   } else {
-    // Worker 미지원 폴백: performance.now() 기반 드리프트 보정 틱
-    (function fallbackTick() {
-      const ms = 1000 - (Date.now() % 1000);
-      setTimeout(() => { onTick(Date.now()); fallbackTick(); }, ms);
-    })();
+    startUiClockTimer();
   }
 }
 
@@ -330,6 +467,10 @@ function fireAlarm(h) {
 
 // ── TTS speak ────────────────────────────────────────────────────
 function speak(text) {
+  if (isNativeWrapper && native?.previewTts) {
+    native.previewTts(text);
+    return;
+  }
   if (!window.speechSynthesis) return;
   speechSynthesis.cancel();
   const s = loadSettings();
@@ -420,6 +561,7 @@ function onSliderChange(e) {
   const val = +e.target.value;
   updateSliderDisplay(e.target, label, val);
   saveSettings({ [key]: val });
+  if (isNativeWrapper) syncNativeTtsConfig();
 }
 
 function onVoiceChange() {
@@ -431,6 +573,7 @@ function onResetTTS() {
   saveSettings(d);
   applyTTSToUI({ ...DEFAULTS });
   $voiceSel.value = '';
+  if (isNativeWrapper) syncNativeTtsConfig({ ...loadSettings(), ...d });
 }
 
 // ── Test voice ────────────────────────────────────────────────────
@@ -449,7 +592,7 @@ function onTestVoice() {
     $testBtn.disabled = false;
     $testBtn.classList.remove('playing');
     $testIcon.textContent  = '🔊';
-    $testLabel.textContent = '목소리 테스트';
+    $testLabel.textContent = isNativeWrapper ? '알람 미리 듣기' : '목소리 테스트';
   }, 2500);
 }
 
@@ -480,18 +623,24 @@ function onToggle() {
   const { startHour, endHour } = loadSettings();
 
   if (alarmOn) {
-    acquireWakeLock();
-    startSilentAudio();
-    syncBackgroundAlarmScheduling();
+    if (!isNativeWrapper) {
+      acquireWakeLock();
+      startSilentAudio();
+      syncBackgroundAlarmScheduling();
+    }
     renderNextAlarm();
-    worker?.postMessage({ type: 'SET_ALARM', enabled: true, startHour, endHour, testMode });
+    if (!isNativeWrapper) {
+      worker?.postMessage({ type: 'SET_ALARM', enabled: true, startHour, endHour, testMode });
+    }
     native?.setAlarm(true, startHour, endHour);   // native Android AlarmManager
   } else {
-    releaseWakeLock();
-    stopSilentAudio();
+    if (!isNativeWrapper) {
+      releaseWakeLock();
+      stopSilentAudio();
+    }
     swCancel();
     $nextCard.classList.remove('show');
-    worker?.postMessage({ type: 'SET_ALARM', enabled: false });
+    if (!isNativeWrapper) worker?.postMessage({ type: 'SET_ALARM', enabled: false });
     native?.setAlarm(false, startHour, endHour);
   }
   updateStatusNotification();
@@ -514,9 +663,9 @@ function onRangeChange() {
   const startHour = +$startSel.value, endHour = +$endSel.value;
   saveSettings({ startHour, endHour });
   if (alarmOn) {
-    syncBackgroundAlarmScheduling();
+    if (!isNativeWrapper) syncBackgroundAlarmScheduling();
     renderNextAlarm();
-    worker?.postMessage({ type: 'UPDATE_RANGE', startHour, endHour });
+    if (!isNativeWrapper) worker?.postMessage({ type: 'UPDATE_RANGE', startHour, endHour });
     native?.setAlarm(true, startHour, endHour);
   }
   updateStatusNotification();
@@ -577,9 +726,17 @@ function startSilentAudio() {
 function stopSilentAudio() { audioCtx?.close(); audioCtx = null; }
 
 document.addEventListener('visibilitychange', () => {
-  if (!alarmOn) return;
+  if (isNativeWrapper && document.visibilityState === 'visible') {
+    refreshNativeStateUI();
+  }
+
+  if (!alarmOn || isNativeWrapper) return;
   if (document.visibilityState === 'visible') acquireWakeLock();
   syncBackgroundAlarmScheduling();
+});
+
+window.addEventListener('focus', () => {
+  if (isNativeWrapper) refreshNativeStateUI();
 });
 
 // ── Service Worker ────────────────────────────────────────────────
@@ -623,6 +780,11 @@ async function swCancel() {
 }
 
 function syncBackgroundAlarmScheduling() {
+  if (isNativeWrapper) {
+    swCancel();
+    return;
+  }
+
   if (!alarmOn) {
     swCancel();
     return;
@@ -634,6 +796,12 @@ function syncBackgroundAlarmScheduling() {
 
 // ── 상태 알림 (영구 알림창 표시) ─────────────────────────────────
 function onStatusNotifToggle() {
+  if (isNativeWrapper) {
+    $statusNotifTgl.checked = false;
+    saveSettings({ statusNotif: false });
+    return;
+  }
+
   const enabled = $statusNotifTgl.checked;
   saveSettings({ statusNotif: enabled });
 
@@ -659,17 +827,22 @@ function onStatusNotifToggle() {
 function onTestModeToggle() {
   testMode = $testModeTgl.checked;
   saveSettings({ testMode });
-  worker?.postMessage({ type: 'TEST_MODE', enabled: testMode });
+  if (!isNativeWrapper) worker?.postMessage({ type: 'TEST_MODE', enabled: testMode });
   native?.setTestMode(testMode);
   if (alarmOn) {
-    syncBackgroundAlarmScheduling();
+    if (!isNativeWrapper) syncBackgroundAlarmScheduling();
     renderNextAlarm();
   }
   updateBackgroundSupportUI();
   showToast(testMode ? '테스트 모드 켜짐 (1분 간격)' : '테스트 모드 꺼짐');
 }
 
+function onBatteryExemptionRequest() {
+  native?.requestBatteryExemption?.();
+}
+
 async function updateStatusNotification() {
+  if (isNativeWrapper) return;
   const s = loadSettings();
   if (!s.statusNotif) return;
   if (Notification.permission !== 'granted') return;
@@ -707,6 +880,7 @@ async function updateStatusNotification() {
 }
 
 async function dismissStatusNotification() {
+  if (isNativeWrapper) return;
   const controller = await withServiceWorkerController();
   controller?.postMessage({ type: 'STATUS_NOTIF', show: false });
 }
@@ -718,6 +892,7 @@ function hourLabel(h) {
 }
 
 async function registerSW() {
+  if (isNativeWrapper) return;
   if (!('serviceWorker' in navigator)) return;
   try {
     await navigator.serviceWorker.register('./sw.js');
@@ -732,12 +907,17 @@ async function registerSW() {
 
 // ── Notification permission ───────────────────────────────────────
 function checkPermissionBanner() {
+  if (isNativeWrapper) {
+    $permBanner.classList.add('hidden');
+    return;
+  }
   if (!('Notification' in window) || Notification.permission === 'granted')
     $permBanner.classList.add('hidden');
   else
     $permBanner.classList.remove('hidden');
 }
 async function askNotificationPermission() {
+  if (isNativeWrapper) return;
   const r = await Notification.requestPermission();
   updateNotificationStatusUI();
   if (r === 'granted') { $permBanner.classList.add('hidden'); if (alarmOn) syncBackgroundAlarmScheduling(); }
@@ -745,6 +925,14 @@ async function askNotificationPermission() {
 
 function updateNotificationStatusUI() {
   if (!$notifPermStatus) return;
+  if (isNativeWrapper) {
+    $notifPermStatus.textContent = formatNativeBoolStatus(
+      nativeState?.notificationGranted,
+      '허용됨',
+      '차단됨'
+    );
+    return;
+  }
   if (!('Notification' in window)) {
     $notifPermStatus.textContent = '미지원';
     return;
@@ -759,8 +947,39 @@ function updateNotificationStatusUI() {
   $notifPermStatus.textContent = label;
 }
 
+function updateExactAlarmStatusUI() {
+  if (!$exactAlarmStatus) return;
+  if (!isNativeWrapper) {
+    $exactAlarmStatus.textContent = '웹 전용';
+    return;
+  }
+
+  $exactAlarmStatus.textContent = formatNativeBoolStatus(
+    nativeState?.exactAlarmGranted,
+    '허용됨',
+    '설정 필요'
+  );
+}
+
+function updateBatteryOptimizationUI() {
+  if (!$batteryOptStatus) return;
+  if (!isNativeWrapper) {
+    $batteryOptStatus.textContent = '웹 전용';
+    return;
+  }
+
+  $batteryOptStatus.textContent = formatNativeBoolStatus(
+    nativeState?.batteryOptimizationIgnored,
+    '예외 적용됨',
+    '최적화 대상'
+  );
+}
+
 function updateBackgroundSupportUI() {
   if (!$bgSupportStatus) return;
+  if (isNativeWrapper) {
+    return;
+  }
   const supportsSw = 'serviceWorker' in navigator;
   const supportsNotif = 'Notification' in window;
   const supportsTrigger = typeof window.TimestampTrigger !== 'undefined';
@@ -781,6 +1000,10 @@ function updateBackgroundSupportUI() {
 
 // ── PWA install tip ───────────────────────────────────────────────
 function checkInstallTip() {
+  if (isNativeWrapper) {
+    $installTip.classList.add('hidden');
+    return;
+  }
   if (window.matchMedia('(display-mode: standalone)').matches)
     $installTip.classList.add('hidden');
 }
@@ -812,42 +1035,75 @@ const GUIDE_STEPS = {
     {
       target:  '#settings-btn',
       tag:     '설정',
-      title:   'TTS & 알림 설정',
-      desc:    '목소리·음높이·속도·음량을 조절하고, 알림창에 알람 상태를 표시할 수 있어요.',
+      title:   isNativeWrapper ? '음성 · 앱 권한 설정' : 'TTS & 알림 설정',
+      desc:    isNativeWrapper
+        ? '앱 알림, 정확한 알람, 배터리 최적화 상태와 음성 설정을 여기서 확인해요.'
+        : '목소리·음높이·속도·음량을 조절하고, 알림창에 알람 상태를 표시할 수 있어요.',
     },
   ],
-  settings: [
-    {
-      target:  '.card:has(#status-notif-toggle)',
-      tag:     '알림',
-      title:   '상태 알림 표시',
-      desc:    '켜두면 알림창에 알람 켜짐/꺼짐 상태와 다음 알람 시각이 항상 표시돼요.',
-    },
-    {
-      target:  '#voice-select',
-      tag:     '목소리',
-      title:   '목소리 선택',
-      desc:    '디바이스에 설치된 한국어 음성 중 원하는 목소리를 고를 수 있어요.',
-    },
-    {
-      target:  '.card:has(#pitch-slider)',
-      tag:     '음성 조절',
-      title:   '음높이 · 속도 · 음량',
-      desc:    '슬라이더로 음높이(Pitch), 말하기 속도(Rate), 음량(Volume)을 자유롭게 조절하세요.',
-    },
-    {
-      target:  '.card:has(#test-mode-toggle)',
-      tag:     '테스트',
-      title:   '테스트 모드',
-      desc:    '켜두면 1시간 간격 대신 1분 간격으로 알람이 울려서 백그라운드 알림과 TTS를 빠르게 점검할 수 있어요.',
-    },
-    {
-      target:  '#test-btn',
-      tag:     '테스트',
-      title:   '목소리 테스트',
-      desc:    '버튼을 탭하면 현재 설정으로 즉시 발화해요. 알람을 켜기 전에 미리 확인해보세요.',
-    },
-  ],
+  settings: isNativeWrapper
+    ? [
+        {
+          target:  '#notif-settings-card',
+          tag:     '알림',
+          title:   '앱 권한 상태',
+          desc:    '앱 알림, 정확한 알람, 배터리 최적화 상태를 안드로이드 기준으로 바로 확인할 수 있어요.',
+        },
+        {
+          target:  '#tts-settings-card',
+          tag:     '음성 조절',
+          title:   '음높이 · 속도 · 음량',
+          desc:    '슬라이더로 음높이(Pitch), 말하기 속도(Rate), 음량(Volume)을 자유롭게 조절하세요.',
+        },
+        {
+          target:  '#test-mode-row',
+          tag:     '테스트',
+          title:   '테스트 모드',
+          desc:    '켜두면 1시간 간격 대신 1분 간격으로 알람이 울려서 백그라운드 알림과 TTS를 빠르게 점검할 수 있어요.',
+          placement: 'top',
+        },
+        {
+          target:  '#test-btn',
+          tag:     '테스트',
+          title:   '알람 미리 듣기',
+          desc:    '버튼을 탭하면 안드로이드에서 실제 알람에 쓰는 음성 설정으로 바로 들려줘요.',
+          placement: 'top',
+        },
+      ]
+    : [
+        {
+          target:  '#notif-settings-card',
+          tag:     '알림',
+          title:   '상태 알림 표시',
+          desc:    '켜두면 알림창에 알람 켜짐/꺼짐 상태와 다음 알람 시각이 항상 표시돼요.',
+        },
+        {
+          target:  '#voice-settings-card',
+          tag:     '목소리',
+          title:   '목소리 선택',
+          desc:    '디바이스에 설치된 한국어 음성 중 원하는 목소리를 고를 수 있어요.',
+        },
+        {
+          target:  '#tts-settings-card',
+          tag:     '음성 조절',
+          title:   '음높이 · 속도 · 음량',
+          desc:    '슬라이더로 음높이(Pitch), 말하기 속도(Rate), 음량(Volume)을 자유롭게 조절하세요.',
+        },
+        {
+          target:  '#test-mode-row',
+          tag:     '테스트',
+          title:   '테스트 모드',
+          desc:    '켜두면 1시간 간격 대신 1분 간격으로 알람이 울려서 백그라운드 알림과 TTS를 빠르게 점검할 수 있어요.',
+          placement: 'top',
+        },
+        {
+          target:  '#test-btn',
+          tag:     '테스트',
+          title:   '목소리 테스트',
+          desc:    '버튼을 탭하면 현재 설정으로 즉시 발화해요. 알람을 켜기 전에 미리 확인해보세요.',
+          placement: 'top',
+        },
+      ],
 };
 
 const $guideOverlay  = document.getElementById('guide-overlay');
@@ -891,31 +1147,157 @@ function renderGuideStep() {
   $guideNext.textContent      = guideStep === total - 1 ? '시작하기 🎉' : '다음';
 
   // find target element (may be in the currently visible view)
-  const targetEl = document.querySelector(step.target);
+  const targetEl = getGuideTarget(step.target);
   if (!targetEl) { advanceGuide(1); return; }  // skip if not in DOM
 
   ensureGuideTargetVisible(targetEl, () => positionGuide(targetEl));
 }
 
-function ensureGuideTargetVisible(el, onReady) {
+function getGuideTarget(selector) {
+  const el = document.querySelector(selector);
+  if (!el) return null;
+
+  const style = window.getComputedStyle(el);
   const rect = el.getBoundingClientRect();
-  const needsScroll = rect.top < 24 || rect.bottom > window.innerHeight - 24;
+  if (style.display === 'none' || style.visibility === 'hidden') return null;
+  if (rect.width === 0 || rect.height === 0) return null;
+
+  return el;
+}
+
+function getCurrentGuideStep() {
+  if (!guideContext) return null;
+  return GUIDE_STEPS[guideContext]?.[guideStep] ?? null;
+}
+
+function getGuideTooltipMetrics() {
+  const MARGIN = 16;
+  const vw = window.innerWidth;
+  const tipW = Math.min(300, vw - MARGIN * 2);
+  $guideTip.style.width = `${tipW}px`;
+  const tipH = Math.ceil($guideTip.getBoundingClientRect().height || $guideTip.offsetHeight || 220);
+  return { tipW, tipH, margin: MARGIN };
+}
+
+function ensureGuideTargetVisible(el, onReady) {
+  const GAP = 8;
+  const step = getCurrentGuideStep();
+  const scrollContainer = getGuideScrollContainer();
+  if (scrollContainer && scrollContainer !== window) {
+    ensureGuideTargetVisibleInContainer(el, scrollContainer, step, onReady);
+    return;
+  }
+
+  const { tipH, margin } = getGuideTooltipMetrics();
+  const placement = step?.placement ?? 'auto';
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const rect = el.getBoundingClientRect();
+  const spacing = GAP + 12;
+  const minTop = placement === 'top' ? margin + tipH + spacing : 24;
+  const maxBottom = placement === 'bottom'
+    ? viewportHeight - (margin + tipH + spacing)
+    : viewportHeight - 24;
+  const needsScroll = rect.top < minTop || rect.bottom > maxBottom;
 
   if (!needsScroll) {
     onReady();
     return;
   }
 
-  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  setTimeout(onReady, 260);
+  const desiredTop = placement === 'top'
+    ? minTop
+    : placement === 'bottom'
+      ? margin
+      : Math.max(24, (viewportHeight - rect.height) / 2);
+  const scrollDelta = rect.top - desiredTop;
+  setGuideWindowScroll(window.scrollY + scrollDelta, () => waitForGuideTargetPosition(el, onReady));
+}
+
+function getGuideScrollContainer() {
+  if (guideContext === 'settings' && $viewSettings) return $viewSettings;
+  return window;
+}
+
+function ensureGuideTargetVisibleInContainer(el, container, step, onReady) {
+  const GAP = 8;
+  const rect = el.getBoundingClientRect();
+  const { tipH, margin } = getGuideTooltipMetrics();
+  const placement = step?.placement ?? 'auto';
+  const spacing = GAP + 12;
+  const minTop = placement === 'top' ? margin + tipH + spacing : 24;
+  const maxBottom = placement === 'bottom'
+    ? container.clientHeight - (margin + tipH + spacing)
+    : container.clientHeight - 24;
+  const needsScroll = rect.top < minTop || rect.bottom > maxBottom;
+
+  const forceExactPosition = placement !== 'auto';
+  if (!needsScroll && !forceExactPosition) {
+    onReady();
+    return;
+  }
+
+  const desiredTop = placement === 'top'
+    ? minTop
+    : placement === 'bottom'
+      ? margin
+      : Math.max(24, (container.clientHeight - rect.height) / 2);
+  const targetTop = container.scrollTop + (rect.top - desiredTop);
+  const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+  const nextScrollTop = Math.max(0, Math.min(targetTop, maxScrollTop));
+
+  if (Math.abs(container.scrollTop - nextScrollTop) < 1) {
+    onReady();
+    return;
+  }
+
+  setGuideContainerScroll(container, nextScrollTop, () => waitForGuideTargetPosition(el, onReady));
+}
+
+function setGuideWindowScroll(top, onReady) {
+  const nextTop = Math.max(0, top);
+  window.scrollTo({ top: nextTop, behavior: 'auto' });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(onReady);
+  });
+}
+
+function setGuideContainerScroll(container, top, onReady) {
+  container.scrollTo({ top, behavior: 'auto' });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(onReady);
+  });
+}
+
+function waitForGuideTargetPosition(el, onReady, attempt = 0, lastRect = null, stableFrames = 0) {
+  const MAX_ATTEMPTS = 12;
+  const rect = el.getBoundingClientRect();
+  const currentRect = {
+    top: Math.round(rect.top),
+    bottom: Math.round(rect.bottom),
+  };
+  const isStable = lastRect
+    && currentRect.top === lastRect.top
+    && currentRect.bottom === lastRect.bottom;
+  const nextStableFrames = isStable ? stableFrames + 1 : 0;
+
+  if (nextStableFrames >= 1 || attempt >= MAX_ATTEMPTS) {
+    onReady();
+    return;
+  }
+
+  requestAnimationFrame(() => {
+    waitForGuideTargetPosition(el, onReady, attempt + 1, currentRect, nextStableFrames);
+  });
 }
 
 function positionGuide(el) {
   const GAP    = 8;
-  const MARGIN = 16;
   const r      = el.getBoundingClientRect();
   const vw     = window.innerWidth;
-  const vh     = window.innerHeight;
+  const vh     = window.visualViewport?.height ?? window.innerHeight;
+  const step   = getCurrentGuideStep();
+  const placement = step?.placement ?? 'auto';
+  const { tipW, tipH, margin: MARGIN } = getGuideTooltipMetrics();
 
   // ── 스포트라이트 ───────────────────────────────────────────────
   $guideSpot.style.top    = `${r.top    - GAP}px`;
@@ -924,22 +1306,26 @@ function positionGuide(el) {
   $guideSpot.style.height = `${r.height + GAP * 2}px`;
 
   // ── 툴팁 가로 위치: 항상 화면 중앙 정렬 ─────────────────────────
-  const tipW = Math.min(300, vw - MARGIN * 2);
   const left = (vw - tipW) / 2;
-  $guideTip.style.width = `${tipW}px`;
   $guideTip.style.left  = `${left}px`;
+  $guideTip.style.top = `${MARGIN}px`;
 
   // ── 툴팁 세로 위치: 아래 공간 우선 → 위 → 화면 중앙 ────────────
   const BELOW_GAP = r.bottom + GAP + 12;
-  const tipH = 220; // 예상 높이 (충분한 여유)
 
   $guideTip.classList.remove('arrow-top', 'arrow-bottom', 'arrow-none');
 
   let top;
-  if (BELOW_GAP + tipH < vh - MARGIN) {
+  if ((placement === 'bottom' || placement === 'auto') && BELOW_GAP + tipH < vh - MARGIN) {
     top = BELOW_GAP;
     $guideTip.classList.add('arrow-top');
-  } else if (r.top - GAP - 12 - tipH > MARGIN) {
+  } else if ((placement === 'top' || placement === 'auto') && r.top - GAP - 12 - tipH > MARGIN) {
+    top = r.top - GAP - 12 - tipH;
+    $guideTip.classList.add('arrow-bottom');
+  } else if (placement === 'top' && BELOW_GAP + tipH < vh - MARGIN) {
+    top = BELOW_GAP;
+    $guideTip.classList.add('arrow-top');
+  } else if (placement === 'bottom' && r.top - GAP - 12 - tipH > MARGIN) {
     top = r.top - GAP - 12 - tipH;
     $guideTip.classList.add('arrow-bottom');
   } else {
@@ -986,7 +1372,7 @@ $guideOverlay.addEventListener('click', e => {
 window.addEventListener('resize', () => {
   if (!guideContext) return;
   const step = GUIDE_STEPS[guideContext][guideStep];
-  const el   = document.querySelector(step.target);
+  const el   = getGuideTarget(step.target);
   if (el) positionGuide(el);
 });
 
