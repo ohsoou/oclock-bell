@@ -280,6 +280,7 @@ async function init() {
 // ── Page navigation ───────────────────────────────────────────────
 function showPage(page) {
   document.body.classList.toggle('show-settings', page === 'settings');
+  window.NativeAlarm?.onPageChanged(page);
   // 설정 페이지 가이드 — 전환 애니메이션 끝난 뒤 표시
   if (page === 'settings') {
     setTimeout(() => startGuide('settings'), 420);
