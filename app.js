@@ -17,7 +17,7 @@ const HOUR_KO = [
 
 // ── 설정 ─────────────────────────────────────────────────────────
 const DEFAULTS = {
-  startHour: 8, endHour: 22, alarmOn: false,
+  startHour: OCB.DEFAULT_START_HOUR, endHour: OCB.DEFAULT_END_HOUR, alarmOn: false,
   pitch: 1.5, rate: 0.80, volume: 1.0, voiceURI: '',
   statusNotif: false, testMode: false,
 };
@@ -328,7 +328,7 @@ function startWorkerTimer() {
     worker.postMessage({ type: 'START' });
 
     // 1시간마다 NTP 재동기화
-    setInterval(() => worker.postMessage({ type: 'RESYNC' }), 60 * 60 * 1000);
+    setInterval(() => worker.postMessage({ type: 'RESYNC' }), OCB.NTP_RESYNC_MS);
   } else {
     startUiClockTimer();
   }
@@ -363,9 +363,7 @@ function onTick(ts) {
   if (alarmOn) renderNextAlarm();
 }
 
-function inRange(h, start, end) {
-  return start <= end ? (h >= start && h < end) : (h >= start || h < end);
-}
+const inRange = OCBTime.inRange;
 
 // ── NTP 상태 표시 ─────────────────────────────────────────────────
 let ntpStatusTimer = null;
@@ -479,7 +477,7 @@ function fireAlarm(h) {
   speak(HOUR_KO[h]);
   showToast(HOUR_KO[h]);
   animateBell();
-  navigator.vibrate?.(300);  // 진동 모드일 때 한 번 진동
+  navigator.vibrate?.(OCB.VIBRATE_MS);  // 진동 모드일 때 한 번 진동
   // 정시 후 "다음 알람" 갱신
   setTimeout(updateStatusNotification, 2000);
 }
@@ -777,7 +775,7 @@ async function swSchedule() {
   const { startHour, endHour } = loadSettings();
   const base = Date.now();
   const alarms = [];
-  const slots  = testMode ? 24 : 24;      // 24 entries either way
+  const slots  = OCB.SCHEDULE_SLOT_COUNT;
   for (let d = 1; d <= slots; d++) {
     const t = new Date();
     if (testMode) t.setMinutes(t.getMinutes() + d, 0, 0);

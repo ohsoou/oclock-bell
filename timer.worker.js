@@ -3,8 +3,10 @@
 //  1. NTP API로 서버 시간 가져와 시계 오프셋(ntpOffset) 계산
 //  2. performance.now()를 기준으로 경과 시간 추적 (드리프트 없음)
 //  3. 보정된 시간 = Date.now() + ntpOffset
-//  4. setInterval 폴링 대신 setTimeout으로 다음 정시를 정밀 예약
+//  4. setInterval 폴링 대신 2단계(coarse→fine) 자기보정 setTimeout으로
+//     다음 정시를 정밀 예약 — 긴 타이머의 스로틀/드리프트 영향을 줄인다
 //  5. UI 업데이트용 1초 틱은 별도로 유지
+importScripts('./constants.js', './time-utils.js');
 
 // NTP 동기화 서버 목록 (순서대로 시도)
 const NTP_APIS = [
@@ -15,8 +17,8 @@ const NTP_APIS = [
 let ntpOffset    = 0;      // ms — 시스템 시계 보정값
 let ntpSynced    = false;
 let alarmEnabled = false;
-let startHour    = 0;
-let endHour      = 24;
+let startHour    = OCB.DEFAULT_START_HOUR;
+let endHour      = OCB.DEFAULT_END_HOUR;
 let testMode     = false;  // true → 1분 간격 (테스트용)
 let alarmTimer   = null;
 let tickTimer    = null;
@@ -54,37 +56,31 @@ function now() {
   return Date.now() + ntpOffset;
 }
 
-// ── 다음 알람 경계까지 ms 계산 ──────────────────────────────────
-// testMode: 다음 정분(:00초) / 일반: 다음 정시(:00:00)
-function msUntilNextBoundary() {
-  const n    = new Date(now());
-  const next = new Date(n);
-  if (testMode) {
-    next.setMinutes(n.getMinutes() + 1, 0, 0);
-  } else {
-    next.setHours(n.getHours() + 1, 0, 0, 0);
-  }
-  return next.getTime() - n.getTime();
-}
-
-// ── 알람 정밀 스케줄링 ───────────────────────────────────────────
+// ── 알람 2단계 자기보정 스케줄링 ────────────────────────────────
+// coarse: 경계 GUARD_MS 전까지만 대기 후 남은 시간을 재계산 (긴 타이머
+//         스로틀·드리프트 영향을 GUARD 구간으로 한정)
+// fine:   경계 직전 보정 시각을 다시 읽어 짧게 정밀 대기 → 발화
 function scheduleNextAlarm() {
   if (alarmTimer) clearTimeout(alarmTimer);
   if (!alarmEnabled) return;
+  armBoundaryTimer();
+}
 
-  const delay = msUntilNextBoundary();
+function armBoundaryTimer() {
+  const remaining = OCBTime.msUntilNextBoundary(now(), testMode);
+  if (remaining > OCB.BOUNDARY_GUARD_MS) {
+    alarmTimer = setTimeout(armBoundaryTimer, remaining - OCB.BOUNDARY_GUARD_MS);
+  } else {
+    alarmTimer = setTimeout(fireBoundary, remaining);
+  }
+}
 
-  alarmTimer = setTimeout(() => {
-    const h = new Date(now()).getHours();
-    const inRange = startHour <= endHour
-      ? (h >= startHour && h < endHour)
-      : (h >= startHour || h < endHour);
-
-    if (inRange) {
-      self.postMessage({ type: 'ALARM', hour: h, ts: now() });
-    }
-    scheduleNextAlarm(); // 다음 정시 재예약
-  }, delay);
+function fireBoundary() {
+  const h = new Date(now()).getHours();
+  if (OCBTime.inRange(h, startHour, endHour)) {
+    self.postMessage({ type: 'ALARM', hour: h, ts: now() });
+  }
+  scheduleNextAlarm(); // 다음 정시 재예약
 }
 
 // ── 1초 UI 틱 ────────────────────────────────────────────────────
@@ -92,7 +88,7 @@ function scheduleNextAlarm() {
 // 매 tick 후 다음 정확한 1초 경계까지의 지연을 재계산
 function scheduleTick() {
   const n       = new Date(now());
-  const msToNext = 1000 - n.getMilliseconds();
+  const msToNext = OCB.MS_PER_SECOND - n.getMilliseconds();
   tickTimer = setTimeout(() => {
     self.postMessage({ type: 'TICK', ts: now() });
     scheduleTick();

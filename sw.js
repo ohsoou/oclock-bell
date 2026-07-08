@@ -1,8 +1,9 @@
-importScripts('./version.js');
+importScripts('./version.js', './constants.js');
 
 const CACHE = `oclock-v${self.APP_META?.version ?? 'dev'}`;
 const ASSETS = ['./', './index.html', './style.css', './app.js',
-                './timer.worker.js', './manifest.json', './icon.svg', './version.js'];
+                './timer.worker.js', './constants.js', './time-utils.js',
+                './manifest.json', './icon.svg', './version.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
@@ -63,7 +64,7 @@ self.addEventListener('message', e => {
     timers.length = 0;
 
     const alarms = (e.data.alarms || []).filter(
-      a => a.delay > 0 && a.delay < 24 * 60 * 60 * 1000
+      a => a.delay > 0 && a.delay < OCB.MAX_ALARM_DELAY_MS
     );
 
     if (hasTrigger) {
