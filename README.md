@@ -87,7 +87,13 @@ app.js
 timer.worker.js
   - NTP 동기화
   - 1초 틱 생성
-  - 다음 정시/정분 경계 정밀 예약
+  - 2단계(coarse→fine) 자기보정 타이머로 다음 정시/정분 경계 정밀 예약
+
+constants.js
+  - 시간 체크 도메인 상수(기본 시각, 리싱크 주기, 경계 임계 등)
+
+time-utils.js
+  - 범위 판정(inRange)·경계 계산(msUntilNextBoundary) 순수 함수
 
 sw.js
   - 앱 셸 캐시
@@ -98,6 +104,8 @@ version.js
   - 앱 버전 및 릴리즈 날짜 관리
 ```
 
+`constants.js`와 `time-utils.js`는 `self` 전역 공유 패턴으로 window(`<script>`), Web Worker/Service Worker(`importScripts`) 세 컨텍스트에서 함께 사용됩니다.
+
 ## 파일 구조
 
 ```text
@@ -106,6 +114,8 @@ oclock bell/
 ├── style.css
 ├── app.js
 ├── timer.worker.js
+├── constants.js
+├── time-utils.js
 ├── sw.js
 ├── manifest.json
 ├── version.js
